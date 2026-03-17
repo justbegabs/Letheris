@@ -11,6 +11,7 @@ const app = express();
 const port = Number(process.env.PORT || 5174);
 const adminPasswordSeed = process.env.ADMIN_PASSWORD || "admin123";
 const sessionSecret = process.env.SESSION_SECRET || "solo-social-dev-secret";
+const allowedOrigin = process.env.ALLOWED_ORIGIN || "http://localhost:3000";
 
 const dataDir = path.join(__dirname, "data");
 const dbPath = path.join(dataDir, "letheris.db");
@@ -21,6 +22,25 @@ initializeSchema();
 ensureAdminCredentials();
 
 app.use(express.json());
+
+// CORS - permitir requisições de múltiplas origens
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  // Permitir localhost e a origem definida em ALLOWED_ORIGIN
+  if (!origin || origin === "http://localhost:3000" || origin === "http://localhost:5174" || origin === allowedOrigin) {
+    res.header("Access-Control-Allow-Origin", origin || process.env.ALLOWED_ORIGIN || "http://localhost:3000");
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  }
+  
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  
+  next();
+});
+
 app.use(
   session({
     secret: sessionSecret,

@@ -1,3 +1,10 @@
+// Configuração de URL base do servidor
+// Em desenvolvimento (localhost): aponta para http://localhost:5174
+// Em produção (GitHub Pages): aponta para sua URL de deployment
+const API_BASE_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5174'
+  : 'https://letheris.onrender.com';
+
 const state = {
   profiles: [],
   posts: [],
@@ -562,11 +569,14 @@ async function loadPosts() {
 }
 
 async function apiRequest(url, options = {}, redirectOnUnauthorized = true) {
+  const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+  
   const fetchOptions = {
     method: options.method || "GET",
     headers: {
       "Content-Type": "application/json"
-    }
+    },
+    credentials: 'include' // Enviar cookies (necessário para sessão)
   };
 
   if (options.body) {
@@ -574,7 +584,7 @@ async function apiRequest(url, options = {}, redirectOnUnauthorized = true) {
   }
 
   try {
-    const response = await fetch(url, fetchOptions);
+    const response = await fetch(fullUrl, fetchOptions);
     const data = await response.json().catch(() => ({}));
 
     if (response.status === 401 && redirectOnUnauthorized) {

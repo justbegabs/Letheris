@@ -73,32 +73,77 @@ Rede social estilo Twitter para **operador único**: você cria perfis/personas 
 
 ### Deploy (para compartilhar com outras pessoas)
 
-⚠️ **GitHub Pages não funciona**: O GitHub Pages só hospeda arquivos estáticos. **Você precisa de um servidor Node.js rodando em outro lugar.**
+O **frontend (HTML/CSS/JS)** e **backend (Node.js)** precisam ser hospedados **em lugares diferentes**:
 
-#### Opções:
+**Importante:** este projeto usa **SQLite**. Em hospedagem gratuita, o disco costuma ser temporário. Isso significa que o app pode funcionar, mas o banco pode ser perdido após restart, deploy ou tempo de inatividade.
 
-**1. Heroku** (gratuito com cartão de crédito)
+#### Step 1: Deploy do Backend
+
+Escolha uma das opções abaixo:
+
+**Opção A: Render** (bom para teste/demo)
 ```bash
-heroku login
-heroku create seu-app-name
-git push heroku main
+# 1. Crie conta em https://render.com
+# 2. Conecte seu repositório GitHub
+# 3. Configure variáveis de ambiente:
+ADMIN_PASSWORD=sua-senha-forte
+SESSION_SECRET=seu-segredo-grande
+ALLOWED_ORIGIN=https://seu-dominio.github.io
+PORT=5174
+# 4. Deploy automático quando fizer push!
 ```
 
-**2. Railway** (novo, recomendado, gratuito com limite)
-- Conecte seu repositório em https://railway.app
+Limitação: no plano gratuito, o backend pode hibernar e o armazenamento local do SQLite não é adequado para dados importantes.
+
+**Opção B: VPS próprio** (melhor para uso real)
+- DigitalOcean, Hostinger VPS, Oracle Cloud, AWS Lightsail ou similar
+- Clone o repositório
+- Rode `npm install && npm start`
+- Mantém melhor controle sobre SQLite e arquivos locais
+
+**Opção C: Railway**
+- Funciona bem, mas normalmente exige plano pago/créditos
+- Vale se você quiser deploy simples sem administrar servidor
+
+**Opção D: Migrar banco para Postgres e manter backend grátis**
+- Se quiser hospedagem gratuita com mais confiabilidade, o ideal é trocar SQLite por Postgres
+- Aí você pode usar Render, Koyeb, Fly.io ou outro host sem depender de disco local
+
+#### Step 2: Deploy do Frontend
+
+**Opção A: GitHub Pages** (gratuito)
+```bash
+# 1. Seu repositório já está no GitHub
+# 2. Vá em Settings > Pages
+# 3. Escolha "Deploy from a branch"
+# 4. Selecione branch "main"
+# 5. O site será hospedado em https://seu-usuario.github.io/seu-repo
+```
+
+**Opção B: Netlify** (gratuito)
+- Conecte GitHub em https://netlify.com
 - Deploy automático
 
-**3. Render** (gratuito com limites)
-- Conecte GitHub em https://render.com
-- Escolha "Web Service"
+#### Step 3: Configurar URLs
 
-**4. DigitalOcean/AWS** (pago, mas mais controle)
-- Crie uma droplet/instância com Node.js
-- Clone e rode o projeto
+1. **No `app.js`**, atualize `API_BASE_URL`:
+   ```javascript
+   const API_BASE_URL = window.location.hostname === 'localhost' 
+     ? 'http://localhost:5174'
+		 : 'https://letheris.onrender.com'; // URL do backend deployado
+   ```
 
-**Depois de fazer deploy:**
-- Substitua `http://localhost:5174` pela URL do seu servidor
-- A autenticação e requisições funcionarão normalmente
+2. **No `.env` do backend**, adicione:
+   ```env
+   ALLOWED_ORIGIN=https://seu-usuario.github.io
+   ```
+
+3. **Faça push** para GitHub - o deploy será automático!
+
+#### Resultado Final:
+- Frontend: `https://seu-usuario.github.io/seu-repo`
+- Backend: `https://letheris.onrender.com`
+- Tudo funcionando! ✅
 
 ## Observações & Troubleshooting
 
@@ -107,10 +152,15 @@ git push heroku main
 - **Primeira execução**: A senha em `.env` é usada **apenas** para criar o banco de dados na primeira vez. Depois disso, pode ser alterada no próprio app (seção "Configurações").
 - **"Erro na requisição" ao fazer login?**
   - Certifique-se de que o servidor está rodando: `npm start`
-  - O navegador deve estar acessando `http://localhost:5174` (não outro endereço)
-  - Se tentar usar URL do GitHub, não vai funcionar (veja seção "Deploy" acima)
+  - Abra `http://localhost:5174` direto (não através do GitHub Pages)
+  - Se o frontend estiver em GitHub Pages, configure corretamente em `app.js` (veja seção "Deploy" acima)
+- **"CORS error" ao tentar fazer login do GitHub Pages?**
+  - Edite `app.js` e configure `API_BASE_URL` (linha 2) com sua URL de backend
+  - Adicione essa URL em `.env`: `ALLOWED_ORIGIN=https://seu-frontend.github.io`
+  - Redeploy o backend
+- **Vai usar hospedagem grátis?** Para demonstração funciona. Para uso real com SQLite, prefira VPS ou migre o banco para Postgres.
 - **Esqueceu a senha?** Em qualquer máquina, use: `npm run reset-password` (solicita a nova senha no terminal).
 - **Resetar tudo**: Pare o servidor e delete a pasta `data/` inteira. Na próxima execução, o banco será recriado com as credenciais do `.env`.
 - **Banco de dados**: Criado automaticamente em `data/letheris.db` (não está no Git).
-- **Aviso**: Não use Live Preview do VS Code na porta 3000. Sempre abra `http://localhost:5174` direto no navegador.
+- **Aviso**: Não use Live Preview do VS Code na porta 3000. Sempre acesse via `http://localhost:5174` direto.
 - **Modo de desenvolvimento**: Use `npm run dev` para ver logs em tempo real e auto-reload.
