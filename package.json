@@ -1,0 +1,16 @@
+{
+  "name": "solo-social-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Rede social solo com backend Node + SQLite",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "reset-password": "node scripts/reset-admin-password.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "express-session": "^1.18.1"
+  }
+}

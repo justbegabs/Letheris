@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Letheris</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <section id="auth-screen" class="auth-screen">
+    <div class="card auth-card">
+      <h1 id="auth-title">Letheris Admin</h1>
+      <p class="muted">Acesso único para controlar todos os perfis, posts e respostas.</p>
+      <form id="login-form" class="stack">
+        <input id="login-password" type="password" placeholder="Senha de administrador" required />
+        <button type="submit">Entrar</button>
+        <small id="login-error" class="danger-text"></small>
+      </form>
+      <div class="row">
+        <button id="open-public-view" type="button" class="ghost">Ver timeline pública</button>
+        <button id="open-user-view" type="button" class="ghost hidden">Entrar como usuário</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="user-screen" class="public-screen hidden">
+    <main class="panel feed-panel">
+      <section class="card">
+        <div class="row between align-center">
+          <h1>Área do usuário</h1>
+          <button id="back-from-user" class="ghost" type="button">Voltar</button>
+        </div>
+        <p class="muted">Crie apenas uma conta para interagir com as postagens.</p>
+
+        <div id="user-register-wrap" class="stack">
+          <h2>Criar conta</h2>
+          <form id="user-register-form" class="stack">
+            <input id="user-name" type="text" maxlength="30" placeholder="Seu nome" required />
+            <input id="user-handle" type="text" maxlength="20" placeholder="@seuusuario" required />
+            <button type="submit">Criar minha conta</button>
+            <small id="user-register-message" class="muted"></small>
+          </form>
+        </div>
+
+        <div id="user-actions-wrap" class="stack hidden">
+          <div class="row between align-center">
+            <div>
+              <strong id="user-account-name"></strong>
+              <span id="user-account-handle" class="muted"></span>
+            </div>
+            <button id="user-logout" class="ghost" type="button">Sair da conta</button>
+          </div>
+          <form id="user-post-form" class="stack">
+            <textarea id="user-post-content" maxlength="280" placeholder="Escreva uma postagem..." required></textarea>
+            <div class="row between">
+              <small id="user-post-counter" class="muted">0/280</small>
+              <button type="submit">Publicar</button>
+            </div>
+            <small id="user-post-message" class="muted"></small>
+          </form>
+        </div>
+
+        <div id="user-feed" class="stack"></div>
+      </section>
+    </main>
+  </section>
+
+  <section id="public-screen" class="public-screen hidden">
+    <main class="panel feed-panel">
+      <section class="card">
+        <div class="row between align-center">
+          <h1>Timeline pública</h1>
+          <div class="row">
+            <button id="refresh-public" class="ghost" type="button">Atualizar</button>
+            <button id="back-to-login" class="ghost" type="button">Área admin</button>
+          </div>
+        </div>
+        <p class="muted">Visualização externa somente leitura.</p>
+        <div id="public-feed" class="stack"></div>
+      </section>
+    </main>
+  </section>
+
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="panel side-panel">
+      <div class="row between align-center">
+        <h1>Letheris</h1>
+        <button id="logout-btn" class="ghost">Sair</button>
+      </div>
+      <p class="muted">Rede social de operador único</p>
+
+      <section class="card">
+        <h2>Novo perfil</h2>
+        <form id="profile-form" class="stack">
+          <input id="profile-name" type="text" maxlength="30" placeholder="Nome" required />
+          <input id="profile-handle" type="text" maxlength="20" placeholder="@usuario" required />
+          <textarea id="profile-bio" maxlength="140" placeholder="Bio (opcional)"></textarea>
+          <button type="submit">Salvar perfil</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="row between">
+          <h2>Perfis</h2>
+          <button id="clear-filter" class="ghost">Mostrar todos</button>
+        </div>
+        <div id="profiles-list" class="stack"></div>
+      </section>
+
+      <section class="card">
+        <h2>Configurações</h2>
+        <form id="password-form" class="stack">
+          <input id="current-password" type="password" placeholder="Senha atual" required />
+          <input id="new-password" type="password" placeholder="Nova senha (mín. 6)" minlength="6" required />
+          <input id="confirm-password" type="password" placeholder="Confirmar nova senha" minlength="6" required />
+          <button type="submit">Alterar senha</button>
+          <small id="password-message" class="muted"></small>
+        </form>
+      </section>
+    </aside>
+
+    <main class="panel feed-panel">
+      <section class="card composer">
+        <h2>Nova postagem</h2>
+        <form id="post-form" class="stack">
+          <select id="post-profile" required></select>
+          <textarea id="post-content" maxlength="280" placeholder="O que está acontecendo?" required></textarea>
+          <div class="row between">
+            <small id="post-counter" class="muted">0/280</small>
+            <button type="submit">Postar</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="row between">
+          <h2>Timeline</h2>
+          <small id="timeline-label" class="muted"></small>
+        </div>
+        <div id="feed" class="stack"></div>
+      </section>
+    </main>
+  </div>
+
+  <template id="profile-template">
+    <article class="profile-item">
+      <div>
+        <p class="name"></p>
+        <p class="handle muted"></p>
+        <p class="bio muted"></p>
+      </div>
+      <div class="row wrap gap-sm">
+        <button data-action="filter" class="ghost">Ver</button>
+        <button data-action="set-active" class="ghost">Usar</button>
+        <button data-action="edit" class="ghost">Editar</button>
+        <button data-action="delete" class="danger">Excluir</button>
+      </div>
+    </article>
+  </template>
+
+  <template id="post-template">
+    <article class="post-item">
+      <header class="row between align-start">
+        <div>
+          <strong class="author"></strong>
+          <span class="handle muted"></span>
+        </div>
+        <small class="muted time"></small>
+      </header>
+      <p class="content"></p>
+      <div class="row between align-center">
+        <small class="muted reply-count"></small>
+        <button data-action="delete-post" class="danger ghost">Excluir post</button>
+      </div>
+      <details>
+        <summary>Responder</summary>
+        <form class="reply-form stack" data-role="reply-form">
+          <select data-role="reply-profile" required></select>
+          <textarea data-role="reply-content" maxlength="280" placeholder="Escreva uma resposta..." required></textarea>
+          <div class="row between">
+            <small class="muted" data-role="reply-counter">0/280</small>
+            <button type="submit">Responder</button>
+          </div>
+        </form>
+      </details>
+      <div class="replies stack"></div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
