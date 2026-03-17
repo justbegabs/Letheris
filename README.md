@@ -26,7 +26,7 @@ Rede social estilo Twitter para **operador único**: você cria perfis/personas 
 
 ## Configuração Rápida
 
-### Passos:
+### Uso Local (seu próprio computador)
 
 1. Clone o repositório:
 
@@ -71,11 +71,44 @@ Rede social estilo Twitter para **operador único**: você cria perfis/personas 
 6. Para usuários externos, clique em **Ver timeline pública**.
 7. Para interagir, clique em **Entrar como usuário**.
 
+### Deploy (para compartilhar com outras pessoas)
+
+⚠️ **GitHub Pages não funciona**: O GitHub Pages só hospeda arquivos estáticos. **Você precisa de um servidor Node.js rodando em outro lugar.**
+
+#### Opções:
+
+**1. Heroku** (gratuito com cartão de crédito)
+```bash
+heroku login
+heroku create seu-app-name
+git push heroku main
+```
+
+**2. Railway** (novo, recomendado, gratuito com limite)
+- Conecte seu repositório em https://railway.app
+- Deploy automático
+
+**3. Render** (gratuito com limites)
+- Conecte GitHub em https://render.com
+- Escolha "Web Service"
+
+**4. DigitalOcean/AWS** (pago, mas mais controle)
+- Crie uma droplet/instância com Node.js
+- Clone e rode o projeto
+
+**Depois de fazer deploy:**
+- Substitua `http://localhost:5174` pela URL do seu servidor
+- A autenticação e requisições funcionarão normalmente
+
 ## Observações & Troubleshooting
 
 - **Setup automático**: Ao rodar `npm install`, o arquivo `.env` é criado automaticamente a partir de `.env.example`.
 - **Credenciais personalizadas?** Edite `.env` após a instalação com suas senhas fortes.
 - **Primeira execução**: A senha em `.env` é usada **apenas** para criar o banco de dados na primeira vez. Depois disso, pode ser alterada no próprio app (seção "Configurações").
+- **"Erro na requisição" ao fazer login?**
+  - Certifique-se de que o servidor está rodando: `npm start`
+  - O navegador deve estar acessando `http://localhost:5174` (não outro endereço)
+  - Se tentar usar URL do GitHub, não vai funcionar (veja seção "Deploy" acima)
 - **Esqueceu a senha?** Em qualquer máquina, use: `npm run reset-password` (solicita a nova senha no terminal).
 - **Resetar tudo**: Pare o servidor e delete a pasta `data/` inteira. Na próxima execução, o banco será recriado com as credenciais do `.env`.
 - **Banco de dados**: Criado automaticamente em `data/letheris.db` (não está no Git).
