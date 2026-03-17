@@ -24,42 +24,60 @@ Rede social estilo Twitter para **operador único**: você cria perfis/personas 
 - Filtrar timeline por perfil.
 - Persistência real em banco local (`data/letheris.db`).
 
-## Configuração
+## Configuração Rápida
 
-1. Instale dependências:
+### Passos:
+
+1. Clone o repositório:
+
+	```bash
+	git clone https://github.com/seu-usuario/seu-repo.git
+	cd seu-repo
+	```
+
+2. Instale dependências:
 
 	```bash
 	npm install
 	```
 
-2. Crie um arquivo `.env` na raiz (pode copiar de `.env.example`) com:
+	> ✅ Automaticamente cria `.env` baseado em `.env.example`
 
-	```env
-	ADMIN_PASSWORD=sua-senha-forte
+3. (Opcional) Edite `.env` com suas credenciais seguras:
+
+	```bash
+	# Abra o arquivo .env e altere:
+	ADMIN_PASSWORD=sua-senha-super-forte
 	SESSION_SECRET=um-segredo-grande-e-aleatorio
-	PORT=5174
 	```
 
-3. Rode o servidor:
+4. Rode o servidor:
 
 	```bash
 	npm start
 	```
 
-4. Abra no navegador:
+   Ou em modo desenvolvimento (com auto-reload):
+   ```bash
+	npm run dev
+	```
+
+5. Abra no navegador:
 
 	```
 	http://localhost:5174
 	```
 
-5. Para usuários externos, na tela inicial use **Ver timeline pública**.
-6. Para interação como usuário comum, use **Entrar como usuário**.
+6. Para usuários externos, clique em **Ver timeline pública**.
+7. Para interagir, clique em **Entrar como usuário**.
 
-## Observações
+## Observações & Troubleshooting
 
-- A senha definida em `.env` é usada como senha inicial apenas na primeira execução do banco.
-- Depois, a troca de senha é feita no próprio app (seção "Configurações").
-- Se esquecer a senha, rode: `npm run reset-password -- nova-senha`.
-- Não abra pelo Live Preview do VS Code na porta 3000; use a URL do backend (`http://localhost:5174`).
-- Banco é criado automaticamente na pasta `data/`.
-- Para resetar tudo, pare o servidor e exclua `data/letheris.db`.
+- **Setup automático**: Ao rodar `npm install`, o arquivo `.env` é criado automaticamente a partir de `.env.example`.
+- **Credenciais personalizadas?** Edite `.env` após a instalação com suas senhas fortes.
+- **Primeira execução**: A senha em `.env` é usada **apenas** para criar o banco de dados na primeira vez. Depois disso, pode ser alterada no próprio app (seção "Configurações").
+- **Esqueceu a senha?** Em qualquer máquina, use: `npm run reset-password` (solicita a nova senha no terminal).
+- **Resetar tudo**: Pare o servidor e delete a pasta `data/` inteira. Na próxima execução, o banco será recriado com as credenciais do `.env`.
+- **Banco de dados**: Criado automaticamente em `data/letheris.db` (não está no Git).
+- **Aviso**: Não use Live Preview do VS Code na porta 3000. Sempre abra `http://localhost:5174` direto no navegador.
+- **Modo de desenvolvimento**: Use `npm run dev` para ver logs em tempo real e auto-reload.

@@ -5,8 +5,10 @@
   "description": "Rede social solo com backend Node + SQLite",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
+    "setup": "node scripts/setup.js",
+    "postinstall": "node scripts/setup.js",
+    "start": "npm run setup && node server.js",
+    "dev": "npm run setup && node --watch server.js",
     "reset-password": "node scripts/reset-admin-password.js"
   },
   "dependencies": {
