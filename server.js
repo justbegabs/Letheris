@@ -3,7 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
-const { DatabaseSync } = require("node:sqlite");
+const { Pool } = require("pg");
 
 loadEnv();
 
@@ -13,20 +13,22 @@ const adminPasswordSeed = "admin123";
 const sessionSecret = normalizeEnvValue(process.env.SESSION_SECRET) || "solo-social-dev-secret";
 const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGIN || process.env.ALLOWED_ORIGINS);
 const isProduction = process.env.NODE_ENV === "production";
-const configuredDbPath = normalizeEnvValue(process.env.SQLITE_PATH);
-const configuredDataDir = normalizeEnvValue(process.env.DATA_DIR);
 
-const dataDir = configuredDbPath
-  ? path.dirname(configuredDbPath)
-  : configuredDataDir
-    ? path.resolve(configuredDataDir)
-    : path.join(__dirname, "data");
-const dbPath = configuredDbPath || path.join(dataDir, "letheris.db");
-ensureDataDir(dataDir);
-const db = new DatabaseSync(dbPath);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
 
-initializeSchema();
-ensureAdminCredentials();
+(async () => {
+  await initializeSchema();
+  await ensureAdminCredentials();
+  app.listen(port, () => {
+    console.log(`Letheris rodando em http://localhost:${port}`);
+  });
+})().catch(err => {
+  console.error("Erro ao inicializar banco:", err.message);
+  process.exit(1);
+});
 
 app.use(express.json());
 
@@ -76,8 +78,8 @@ app.get("/api/session", (req, res) => {
   res.json({ loggedIn: Boolean(req.session?.isAdmin) });
 });
 
-app.get("/api/public/account", (req, res) => {
-  const account = getPublicAccountFromSession(req);
+app.get("/api/public/account", async (req, res) => {
+  const account = await getPublicAccountFromSession(req);
   if (!account) {
     return res.json({ account: null });
   }
@@ -93,8 +95,8 @@ app.get("/api/public/account", (req, res) => {
   });
 });
 
-app.post("/api/public/register", (req, res) => {
-  const existing = getPublicAccountFromSession(req);
+app.post("/api/public/register", async (req, res) => {
+  const existing = await getPublicAccountFromSession(req);
   if (existing) {
     return res.status(409).json({ error: "Esta sessão já possui uma conta criada." });
   }
@@ -107,7 +109,7 @@ app.post("/api/public/register", (req, res) => {
     return res.status(400).json({ error: "Nome e @usuario são obrigatórios." });
   }
 
-  const handleExists = db.prepare("SELECT 1 FROM profiles WHERE handle = ?").get(cleanHandle);
+  const handleExists = (await pool.query("SELECT 1 FROM profiles WHERE handle = $1", [cleanHandle])).rows[0];
   if (handleExists) {
     return res.status(409).json({ error: "@usuario já existe." });
   }
@@ -115,14 +117,11 @@ app.post("/api/public/register", (req, res) => {
   const profileId = cryptoRandomId();
   const accountId = cryptoRandomId();
 
-  const transaction = wrapTransaction(() => {
-    db.prepare("INSERT INTO profiles (id, name, handle, bio, is_public) VALUES (?, ?, ?, '', 1)")
-      .run(profileId, cleanName, cleanHandle);
-    db.prepare("INSERT INTO public_accounts (id, profile_id) VALUES (?, ?)")
-      .run(accountId, profileId);
+  await withTransaction(async (client) => {
+    await client.query("INSERT INTO profiles (id, name, handle, bio, is_public) VALUES ($1, $2, $3, '', 1)", [profileId, cleanName, cleanHandle]);
+    await client.query("INSERT INTO public_accounts (id, profile_id) VALUES ($1, $2)", [accountId, profileId]);
   });
 
-  transaction();
   req.session.publicAccountId = accountId;
 
   res.status(201).json({
@@ -143,9 +142,9 @@ app.post("/api/public/logout", (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/login", (req, res) => {
+app.post("/api/login", async (req, res) => {
   const { password } = req.body || {};
-  if (!password || !verifyAdminPassword(password)) {
+  if (!password || !await verifyAdminPassword(password)) {
     return res.status(401).json({ error: "Senha inválida." });
   }
 
@@ -153,7 +152,7 @@ app.post("/api/login", (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/admin/password", requireAuth, (req, res) => {
+app.post("/api/admin/password", requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
   const cleanCurrent = (currentPassword || "").trim();
   const cleanNext = (newPassword || "").trim();
@@ -162,7 +161,7 @@ app.post("/api/admin/password", requireAuth, (req, res) => {
     return res.status(400).json({ error: "Informe senha atual e nova senha." });
   }
 
-  if (!verifyAdminPassword(cleanCurrent)) {
+  if (!await verifyAdminPassword(cleanCurrent)) {
     return res.status(401).json({ error: "Senha atual inválida." });
   }
 
@@ -171,8 +170,7 @@ app.post("/api/admin/password", requireAuth, (req, res) => {
   }
 
   const nextHash = hashPassword(cleanNext);
-  db.prepare("UPDATE admin_config SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1")
-    .run(nextHash);
+  await pool.query("UPDATE admin_config SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = 1", [nextHash]);
 
   res.json({ ok: true });
 });
@@ -184,14 +182,14 @@ app.post("/api/logout", requireAuth, (req, res) => {
   });
 });
 
-app.get("/api/profiles", requireAuth, (req, res) => {
-  const profiles = db
-    .prepare("SELECT id, name, handle, bio, created_at FROM profiles WHERE is_public = 0 ORDER BY created_at DESC")
-    .all();
+app.get("/api/profiles", requireAuth, async (req, res) => {
+  const profiles = (await pool.query(
+    "SELECT id, name, handle, bio, created_at FROM profiles WHERE is_public = 0 ORDER BY created_at DESC"
+  )).rows;
   res.json(profiles);
 });
 
-app.post("/api/profiles", requireAuth, (req, res) => {
+app.post("/api/profiles", requireAuth, async (req, res) => {
   const { name, handle, bio } = req.body || {};
   const cleanName = (name || "").trim();
   const cleanHandle = (handle || "").trim().replace(/^@+/, "").toLowerCase();
@@ -201,21 +199,22 @@ app.post("/api/profiles", requireAuth, (req, res) => {
     return res.status(400).json({ error: "Nome e usuário são obrigatórios." });
   }
 
-  const exists = db.prepare("SELECT 1 FROM profiles WHERE handle = ?").get(cleanHandle);
+  const exists = (await pool.query("SELECT 1 FROM profiles WHERE handle = $1", [cleanHandle])).rows[0];
   if (exists) {
     return res.status(409).json({ error: "@usuario já existe." });
   }
 
   const id = cryptoRandomId();
-  db.prepare(
-    "INSERT INTO profiles (id, name, handle, bio, is_public) VALUES (?, ?, ?, ?, 0)"
-  ).run(id, cleanName, cleanHandle, cleanBio);
+  await pool.query(
+    "INSERT INTO profiles (id, name, handle, bio, is_public) VALUES ($1, $2, $3, $4, 0)",
+    [id, cleanName, cleanHandle, cleanBio]
+  );
 
-  const profile = db.prepare("SELECT id, name, handle, bio, created_at FROM profiles WHERE id = ?").get(id);
+  const profile = (await pool.query("SELECT id, name, handle, bio, created_at FROM profiles WHERE id = $1", [id])).rows[0];
   res.status(201).json(profile);
 });
 
-app.put("/api/profiles/:id", requireAuth, (req, res) => {
+app.put("/api/profiles/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
   const { name, handle, bio } = req.body || {};
   const cleanName = (name || "").trim();
@@ -226,67 +225,63 @@ app.put("/api/profiles/:id", requireAuth, (req, res) => {
     return res.status(400).json({ error: "Nome e usuário são obrigatórios." });
   }
 
-  const current = db.prepare("SELECT id FROM profiles WHERE id = ? AND is_public = 0").get(id);
+  const current = (await pool.query("SELECT id FROM profiles WHERE id = $1 AND is_public = 0", [id])).rows[0];
   if (!current) {
     return res.status(404).json({ error: "Perfil não encontrado." });
   }
 
-  const conflict = db
-    .prepare("SELECT id FROM profiles WHERE handle = ? AND id <> ?")
-    .get(cleanHandle, id);
+  const conflict = (await pool.query("SELECT id FROM profiles WHERE handle = $1 AND id <> $2", [cleanHandle, id])).rows[0];
   if (conflict) {
     return res.status(409).json({ error: "@usuario já existe." });
   }
 
-  db.prepare("UPDATE profiles SET name = ?, handle = ?, bio = ? WHERE id = ?").run(
-    cleanName,
-    cleanHandle,
-    cleanBio,
-    id
+  await pool.query(
+    "UPDATE profiles SET name = $1, handle = $2, bio = $3 WHERE id = $4",
+    [cleanName, cleanHandle, cleanBio, id]
   );
 
-  const profile = db.prepare("SELECT id, name, handle, bio, created_at FROM profiles WHERE id = ?").get(id);
+  const profile = (await pool.query("SELECT id, name, handle, bio, created_at FROM profiles WHERE id = $1", [id])).rows[0];
   res.json(profile);
 });
 
-app.delete("/api/profiles/:id", requireAuth, (req, res) => {
+app.delete("/api/profiles/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
 
-  const profile = db.prepare("SELECT id FROM profiles WHERE id = ? AND is_public = 0").get(id);
+  const profile = (await pool.query("SELECT id FROM profiles WHERE id = $1 AND is_public = 0", [id])).rows[0];
   if (!profile) {
     return res.status(404).json({ error: "Perfil não encontrado." });
   }
 
-  const transaction = wrapTransaction((profileId) => {
-    db.prepare("DELETE FROM replies WHERE profile_id = ?").run(profileId);
-    db.prepare("DELETE FROM replies WHERE post_id IN (SELECT id FROM posts WHERE profile_id = ?)").run(profileId);
-    db.prepare("DELETE FROM posts WHERE profile_id = ?").run(profileId);
-    db.prepare("DELETE FROM profiles WHERE id = ?").run(profileId);
+  await withTransaction(async (client) => {
+    await client.query("DELETE FROM replies WHERE profile_id = $1", [id]);
+    await client.query("DELETE FROM replies WHERE post_id IN (SELECT id FROM posts WHERE profile_id = $1)", [id]);
+    await client.query("DELETE FROM posts WHERE profile_id = $1", [id]);
+    await client.query("DELETE FROM profiles WHERE id = $1", [id]);
   });
 
-  transaction(id);
   res.json({ ok: true });
 });
 
-app.get("/api/posts", requireAuth, (req, res) => {
+app.get("/api/posts", requireAuth, async (req, res) => {
   const profileId = (req.query.profileId || "").toString().trim();
-  res.json(getPostsWithReplies(profileId));
+  res.json(await getPostsWithReplies(profileId));
 });
 
-app.get("/api/public/posts", (req, res) => {
-  res.json(getPostsWithReplies());
+app.get("/api/public/posts", async (req, res) => {
+  res.json(await getPostsWithReplies());
 });
 
-app.post("/api/public/posts", requirePublicAccount, (req, res) => {
+app.post("/api/public/posts", requirePublicAccount, async (req, res) => {
   const { content } = req.body || {};
   const cleanContent = (content || "").trim();
   if (!cleanContent) {
     return res.status(400).json({ error: "Conteúdo é obrigatório." });
   }
 
-  const lastPost = db
-    .prepare("SELECT created_at FROM posts WHERE profile_id = ? ORDER BY created_at DESC LIMIT 1")
-    .get(req.publicAccount.profile_id);
+  const lastPost = (await pool.query(
+    "SELECT created_at FROM posts WHERE profile_id = $1 ORDER BY created_at DESC LIMIT 1",
+    [req.publicAccount.profile_id]
+  )).rows[0];
 
   const waitForPost = getRateLimitInfo(lastPost?.created_at, 30);
   if (!waitForPost.allowed) {
@@ -297,13 +292,15 @@ app.post("/api/public/posts", requirePublicAccount, (req, res) => {
 
   const postId = cryptoRandomId();
   const createdAt = getBrasiliaIsoTimestamp();
-  db.prepare("INSERT INTO posts (id, profile_id, content, created_at) VALUES (?, ?, ?, ?)")
-    .run(postId, req.publicAccount.profile_id, cleanContent, createdAt);
+  await pool.query(
+    "INSERT INTO posts (id, profile_id, content, created_at) VALUES ($1, $2, $3, $4)",
+    [postId, req.publicAccount.profile_id, cleanContent, createdAt]
+  );
 
   res.status(201).json({ ok: true, id: postId });
 });
 
-app.post("/api/public/posts/:id/replies", requirePublicAccount, (req, res) => {
+app.post("/api/public/posts/:id/replies", requirePublicAccount, async (req, res) => {
   const { id } = req.params;
   const { content } = req.body || {};
   const cleanContent = (content || "").trim();
@@ -312,14 +309,15 @@ app.post("/api/public/posts/:id/replies", requirePublicAccount, (req, res) => {
     return res.status(400).json({ error: "Conteúdo é obrigatório." });
   }
 
-  const post = db.prepare("SELECT id FROM posts WHERE id = ?").get(id);
+  const post = (await pool.query("SELECT id FROM posts WHERE id = $1", [id])).rows[0];
   if (!post) {
     return res.status(404).json({ error: "Post não encontrado." });
   }
 
-  const lastReply = db
-    .prepare("SELECT created_at FROM replies WHERE post_id = ? AND profile_id = ? ORDER BY created_at DESC LIMIT 1")
-    .get(id, req.publicAccount.profile_id);
+  const lastReply = (await pool.query(
+    "SELECT created_at FROM replies WHERE post_id = $1 AND profile_id = $2 ORDER BY created_at DESC LIMIT 1",
+    [id, req.publicAccount.profile_id]
+  )).rows[0];
 
   const waitForReply = getRateLimitInfo(lastReply?.created_at, 30);
   if (!waitForReply.allowed) {
@@ -330,49 +328,52 @@ app.post("/api/public/posts/:id/replies", requirePublicAccount, (req, res) => {
 
   const replyId = cryptoRandomId();
   const createdAt = getBrasiliaIsoTimestamp();
-  db.prepare("INSERT INTO replies (id, post_id, profile_id, content, created_at) VALUES (?, ?, ?, ?, ?)")
-    .run(replyId, id, req.publicAccount.profile_id, cleanContent, createdAt);
+  await pool.query(
+    "INSERT INTO replies (id, post_id, profile_id, content, created_at) VALUES ($1, $2, $3, $4, $5)",
+    [replyId, id, req.publicAccount.profile_id, cleanContent, createdAt]
+  );
 
   res.status(201).json({ ok: true, id: replyId });
 });
 
-app.post("/api/posts", requireAuth, (req, res) => {
+app.post("/api/posts", requireAuth, async (req, res) => {
   const { profileId, content } = req.body || {};
   const cleanContent = (content || "").trim();
   if (!profileId || !cleanContent) {
     return res.status(400).json({ error: "Perfil e conteúdo são obrigatórios." });
   }
 
-  const profile = db.prepare("SELECT id FROM profiles WHERE id = ?").get(profileId);
+  const profile = (await pool.query("SELECT id FROM profiles WHERE id = $1", [profileId])).rows[0];
   if (!profile) {
     return res.status(404).json({ error: "Perfil não encontrado." });
   }
 
   const id = cryptoRandomId();
   const createdAt = getBrasiliaIsoTimestamp();
-  db.prepare("INSERT INTO posts (id, profile_id, content, created_at) VALUES (?, ?, ?, ?)")
-    .run(id, profileId, cleanContent, createdAt);
+  await pool.query(
+    "INSERT INTO posts (id, profile_id, content, created_at) VALUES ($1, $2, $3, $4)",
+    [id, profileId, cleanContent, createdAt]
+  );
   res.status(201).json({ ok: true, id });
 });
 
-app.delete("/api/posts/:id", requireAuth, (req, res) => {
+app.delete("/api/posts/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
 
-  const post = db.prepare("SELECT id FROM posts WHERE id = ?").get(id);
+  const post = (await pool.query("SELECT id FROM posts WHERE id = $1", [id])).rows[0];
   if (!post) {
     return res.status(404).json({ error: "Post não encontrado." });
   }
 
-  const transaction = wrapTransaction((postId) => {
-    db.prepare("DELETE FROM replies WHERE post_id = ?").run(postId);
-    db.prepare("DELETE FROM posts WHERE id = ?").run(postId);
+  await withTransaction(async (client) => {
+    await client.query("DELETE FROM replies WHERE post_id = $1", [id]);
+    await client.query("DELETE FROM posts WHERE id = $1", [id]);
   });
 
-  transaction(id);
   res.json({ ok: true });
 });
 
-app.post("/api/posts/:id/replies", requireAuth, (req, res) => {
+app.post("/api/posts/:id/replies", requireAuth, async (req, res) => {
   const { id } = req.params;
   const { profileId, content } = req.body || {};
   const cleanContent = (content || "").trim();
@@ -381,45 +382,38 @@ app.post("/api/posts/:id/replies", requireAuth, (req, res) => {
     return res.status(400).json({ error: "Perfil e conteúdo são obrigatórios." });
   }
 
-  const post = db.prepare("SELECT id FROM posts WHERE id = ?").get(id);
+  const post = (await pool.query("SELECT id FROM posts WHERE id = $1", [id])).rows[0];
   if (!post) {
     return res.status(404).json({ error: "Post não encontrado." });
   }
 
-  const profile = db.prepare("SELECT id FROM profiles WHERE id = ?").get(profileId);
+  const profile = (await pool.query("SELECT id FROM profiles WHERE id = $1", [profileId])).rows[0];
   if (!profile) {
     return res.status(404).json({ error: "Perfil não encontrado." });
   }
 
   const replyId = cryptoRandomId();
   const createdAt = getBrasiliaIsoTimestamp();
-  db.prepare("INSERT INTO replies (id, post_id, profile_id, content, created_at) VALUES (?, ?, ?, ?, ?)").run(
-    replyId,
-    id,
-    profileId,
-    cleanContent,
-    createdAt
+  await pool.query(
+    "INSERT INTO replies (id, post_id, profile_id, content, created_at) VALUES ($1, $2, $3, $4, $5)",
+    [replyId, id, profileId, cleanContent, createdAt]
   );
 
   res.status(201).json({ ok: true, id: replyId });
 });
 
-app.delete("/api/replies/:id", requireAuth, (req, res) => {
+app.delete("/api/replies/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
-  const reply = db.prepare("SELECT id FROM replies WHERE id = ?").get(id);
+  const reply = (await pool.query("SELECT id FROM replies WHERE id = $1", [id])).rows[0];
   if (!reply) {
     return res.status(404).json({ error: "Resposta não encontrada." });
   }
 
-  db.prepare("DELETE FROM replies WHERE id = ?").run(id);
+  await pool.query("DELETE FROM replies WHERE id = $1", [id]);
   res.json({ ok: true });
 });
 
 app.use(express.static(__dirname));
-
-app.listen(port, () => {
-  console.log(`Letheris rodando em http://localhost:${port}`);
-});
 
 function requireAuth(req, res, next) {
   if (!req.session?.isAdmin) {
@@ -429,18 +423,17 @@ function requireAuth(req, res, next) {
 }
 
 function requirePublicAccount(req, res, next) {
-  const account = getPublicAccountFromSession(req);
-  if (!account) {
-    return res.status(401).json({ error: "Crie sua conta de usuário para interagir." });
-  }
-  req.publicAccount = account;
-  next();
+  getPublicAccountFromSession(req).then(account => {
+    if (!account) {
+      return res.status(401).json({ error: "Crie sua conta de usuário para interagir." });
+    }
+    req.publicAccount = account;
+    next();
+  }).catch(next);
 }
 
-function initializeSchema() {
-  db.exec(`
-    PRAGMA journal_mode = WAL;
-
+async function initializeSchema() {
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS profiles (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -454,8 +447,7 @@ function initializeSchema() {
       id TEXT PRIMARY KEY,
       profile_id TEXT NOT NULL,
       content TEXT NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (profile_id) REFERENCES profiles(id)
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS replies (
@@ -463,13 +455,11 @@ function initializeSchema() {
       post_id TEXT NOT NULL,
       profile_id TEXT NOT NULL,
       content TEXT NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (post_id) REFERENCES posts(id),
-      FOREIGN KEY (profile_id) REFERENCES profiles(id)
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS admin_config (
-      id INTEGER PRIMARY KEY CHECK(id = 1),
+      id INTEGER PRIMARY KEY,
       password_hash TEXT NOT NULL,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -477,33 +467,32 @@ function initializeSchema() {
     CREATE TABLE IF NOT EXISTS public_accounts (
       id TEXT PRIMARY KEY,
       profile_id TEXT NOT NULL UNIQUE,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (profile_id) REFERENCES profiles(id)
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
-  ensureProfilesMigration();
+  await ensureProfilesMigration();
 }
 
-function ensureAdminCredentials() {
-  const existing = db.prepare("SELECT id FROM admin_config WHERE id = 1").get();
-  if (existing && verifyAdminPassword(adminPasswordSeed)) {
+async function ensureAdminCredentials() {
+  const existing = (await pool.query("SELECT id FROM admin_config WHERE id = 1")).rows[0];
+  if (existing && await verifyAdminPassword(adminPasswordSeed)) {
     return;
   }
 
   const hash = hashPassword(adminPasswordSeed);
 
   if (existing) {
-    db.prepare("UPDATE admin_config SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1").run(hash);
+    await pool.query("UPDATE admin_config SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = 1", [hash]);
     console.log("Senha de admin sincronizada no startup para o valor definido no código.");
     return;
   }
 
-  db.prepare("INSERT INTO admin_config (id, password_hash) VALUES (1, ?)").run(hash);
+  await pool.query("INSERT INTO admin_config (id, password_hash) VALUES (1, $1)", [hash]);
 }
 
-function verifyAdminPassword(password) {
-  const row = db.prepare("SELECT password_hash FROM admin_config WHERE id = 1").get();
+async function verifyAdminPassword(password) {
+  const row = (await pool.query("SELECT password_hash FROM admin_config WHERE id = 1")).rows[0];
   if (!row?.password_hash) {
     return false;
   }
@@ -556,17 +545,18 @@ function getBrasiliaIsoTimestamp() {
   return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}:${values.second}-03:00`;
 }
 
-function wrapTransaction(fn) {
-  return (...args) => {
-    db.exec("BEGIN");
-    try {
-      fn(...args);
-      db.exec("COMMIT");
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
-    }
-  };
+async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await fn(client);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 function mapRowToEntry(row) {
@@ -582,39 +572,34 @@ function mapRowToEntry(row) {
   };
 }
 
-function getPostsWithReplies(profileId = "") {
+async function getPostsWithReplies(profileId = "") {
   const cleanProfileId = (profileId || "").toString().trim();
 
   const postRows = cleanProfileId
-    ? db
-        .prepare(
-          `SELECT p.id, p.content, p.created_at,
-                  pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle
-           FROM posts p
-           JOIN profiles pr ON pr.id = p.profile_id
-           WHERE p.profile_id = ?
-           ORDER BY p.created_at DESC`
-        )
-        .all(cleanProfileId)
-    : db
-        .prepare(
-          `SELECT p.id, p.content, p.created_at,
-                  pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle
-           FROM posts p
-           JOIN profiles pr ON pr.id = p.profile_id
-           ORDER BY p.created_at DESC`
-        )
-        .all();
+    ? (await pool.query(
+        `SELECT p.id, p.content, p.created_at,
+                pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle
+         FROM posts p
+         JOIN profiles pr ON pr.id = p.profile_id
+         WHERE p.profile_id = $1
+         ORDER BY p.created_at DESC`,
+        [cleanProfileId]
+      )).rows
+    : (await pool.query(
+        `SELECT p.id, p.content, p.created_at,
+                pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle
+         FROM posts p
+         JOIN profiles pr ON pr.id = p.profile_id
+         ORDER BY p.created_at DESC`
+      )).rows;
 
-  const replyRows = db
-    .prepare(
-      `SELECT r.id, r.post_id, r.content, r.created_at,
-              pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle
-       FROM replies r
-       JOIN profiles pr ON pr.id = r.profile_id
-       ORDER BY r.created_at DESC`
-    )
-    .all();
+  const replyRows = (await pool.query(
+    `SELECT r.id, r.post_id, r.content, r.created_at,
+            pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle
+     FROM replies r
+     JOIN profiles pr ON pr.id = r.profile_id
+     ORDER BY r.created_at DESC`
+  )).rows;
 
   const repliesByPost = new Map();
   for (const row of replyRows) {
@@ -629,20 +614,20 @@ function getPostsWithReplies(profileId = "") {
   }));
 }
 
-function getPublicAccountFromSession(req) {
+async function getPublicAccountFromSession(req) {
   const accountId = (req.session?.publicAccountId || "").trim();
   if (!accountId) {
     return null;
   }
 
-  return db
-    .prepare(
-      `SELECT pa.id, pa.profile_id, p.name, p.handle
-       FROM public_accounts pa
-       JOIN profiles p ON p.id = pa.profile_id
-       WHERE pa.id = ? AND p.is_public = 1`
-    )
-    .get(accountId);
+  const result = await pool.query(
+    `SELECT pa.id, pa.profile_id, p.name, p.handle
+     FROM public_accounts pa
+     JOIN profiles p ON p.id = pa.profile_id
+     WHERE pa.id = $1 AND p.is_public = 1`,
+    [accountId]
+  );
+  return result.rows[0] || null;
 }
 
 function getRateLimitInfo(lastCreatedAt, limitMinutes) {
@@ -680,17 +665,12 @@ function parseStoredDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function ensureProfilesMigration() {
-  const columns = db.prepare("PRAGMA table_info(profiles)").all();
-  const hasIsPublic = columns.some((column) => column.name === "is_public");
-  if (!hasIsPublic) {
-    db.exec("ALTER TABLE profiles ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0");
-  }
-}
-
-function ensureDataDir(targetDir) {
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
+async function ensureProfilesMigration() {
+  const result = await pool.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'is_public'"
+  );
+  if (result.rows.length === 0) {
+    await pool.query("ALTER TABLE profiles ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0");
   }
 }
 
