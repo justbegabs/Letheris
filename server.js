@@ -11,6 +11,7 @@ const app = express();
 const port = Number(process.env.PORT || 5174);
 const adminPasswordSeed = process.env.ADMIN_PASSWORD || "admin123";
 const sessionSecret = process.env.SESSION_SECRET || "solo-social-dev-secret";
+const forceAdminPasswordReset = String(process.env.FORCE_ADMIN_PASSWORD || "").toLowerCase() === "true";
 const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGIN || process.env.ALLOWED_ORIGINS);
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -481,11 +482,18 @@ function initializeSchema() {
 
 function ensureAdminCredentials() {
   const existing = db.prepare("SELECT id FROM admin_config WHERE id = 1").get();
-  if (existing) {
+  if (existing && !forceAdminPasswordReset) {
     return;
   }
 
   const hash = hashPassword(adminPasswordSeed);
+
+  if (existing) {
+    db.prepare("UPDATE admin_config SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1").run(hash);
+    console.log("Senha de admin redefinida no startup por FORCE_ADMIN_PASSWORD.");
+    return;
+  }
+
   db.prepare("INSERT INTO admin_config (id, password_hash) VALUES (1, ?)").run(hash);
 }
 
