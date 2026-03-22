@@ -22,6 +22,7 @@ const authTitle = document.getElementById("auth-title");
 const loginForm = document.getElementById("login-form");
 const loginPasswordInput = document.getElementById("login-password");
 const loginError = document.getElementById("login-error");
+const networkBanner = document.getElementById("network-banner");
 const logoutButton = document.getElementById("logout-btn");
 const openPublicViewButton = document.getElementById("open-public-view");
 const openUserViewButton = document.getElementById("open-user-view");
@@ -76,6 +77,12 @@ boot();
 async function boot() {
   bindEvents();
   const session = await apiRequest("/api/session", { method: "GET" }, false);
+
+  if (session?.__networkError) {
+    showAuth();
+    loginError.textContent = session.error;
+    return;
+  }
 
   if (session?.loggedIn) {
     await enterApp();
@@ -570,12 +577,18 @@ async function loadPosts() {
 
 async function apiRequest(url, options = {}, redirectOnUnauthorized = true) {
   const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
-  
+
+  const headers = {
+    ...(options.headers || {})
+  };
+
+  if (options.body) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const fetchOptions = {
     method: options.method || "GET",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers,
     credentials: 'include' // Enviar cookies (necessário para sessão)
   };
 
@@ -587,6 +600,8 @@ async function apiRequest(url, options = {}, redirectOnUnauthorized = true) {
     const response = await fetch(fullUrl, fetchOptions);
     const data = await response.json().catch(() => ({}));
 
+    hideNetworkBanner();
+
     if (response.status === 401 && redirectOnUnauthorized) {
       showAuth();
     }
@@ -597,8 +612,28 @@ async function apiRequest(url, options = {}, redirectOnUnauthorized = true) {
 
     return data;
   } catch {
-    return { error: "Erro de conexão com o servidor." };
+    const message = "Sem conexão com o backend. Verifique deploy/CORS no Render e tente novamente.";
+    showNetworkBanner(message);
+    return { error: message, __networkError: true };
   }
+}
+
+function showNetworkBanner(message) {
+  if (!networkBanner) {
+    return;
+  }
+
+  networkBanner.textContent = message;
+  networkBanner.classList.remove("hidden");
+}
+
+function hideNetworkBanner() {
+  if (!networkBanner) {
+    return;
+  }
+
+  networkBanner.textContent = "";
+  networkBanner.classList.add("hidden");
 }
 
 function formatDate(isoString) {

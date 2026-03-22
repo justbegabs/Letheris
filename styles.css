@@ -20,6 +20,18 @@ body {
   color: var(--text);
 }
 
+.network-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  background: #7f1d1d;
+  border-bottom: 1px solid #b91c1c;
+  color: #fee2e2;
+  font-size: 0.92rem;
+}
+
 .hidden {
   display: none !important;
 }

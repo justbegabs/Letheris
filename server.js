@@ -11,7 +11,8 @@ const app = express();
 const port = Number(process.env.PORT || 5174);
 const adminPasswordSeed = process.env.ADMIN_PASSWORD || "admin123";
 const sessionSecret = process.env.SESSION_SECRET || "solo-social-dev-secret";
-const allowedOrigin = process.env.ALLOWED_ORIGIN || "http://localhost:3000";
+const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGIN || process.env.ALLOWED_ORIGINS);
+const isProduction = process.env.NODE_ENV === "production";
 
 const dataDir = path.join(__dirname, "data");
 const dbPath = path.join(dataDir, "letheris.db");
@@ -23,21 +24,31 @@ ensureAdminCredentials();
 
 app.use(express.json());
 
-// CORS - permitir requisições de múltiplas origens
+if (isProduction) {
+  app.set("trust proxy", 1);
+}
+
+// CORS - permitir requisições do frontend local e do GitHub Pages
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  // Permitir localhost e a origem definida em ALLOWED_ORIGIN
-  if (!origin || origin === "http://localhost:3000" || origin === "http://localhost:5174" || origin === allowedOrigin) {
-    res.header("Access-Control-Allow-Origin", origin || process.env.ALLOWED_ORIGIN || "http://localhost:3000");
+  const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
+  const requestedHeaders =
+    typeof req.headers["access-control-request-headers"] === "string"
+      ? req.headers["access-control-request-headers"]
+      : "Content-Type, Authorization";
+
+  if (!origin || isAllowedOrigin(origin)) {
+    res.header("Access-Control-Allow-Origin", origin || "http://localhost:5174");
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.header("Access-Control-Allow-Headers", requestedHeaders);
+    res.header("Access-Control-Max-Age", "86400");
+    res.header("Vary", "Origin");
   }
-  
+
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
-  
+
   next();
 });
 
@@ -48,7 +59,8 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: isProduction ? "none" : "lax",
+      secure: isProduction,
       maxAge: 1000 * 60 * 60 * 24 * 7
     }
   })
@@ -690,5 +702,35 @@ function loadEnv() {
     if (!process.env[key]) {
       process.env[key] = value;
     }
+  }
+}
+
+function parseAllowedOrigins(rawValue) {
+  if (!rawValue || typeof rawValue !== "string") {
+    return [];
+  }
+
+  return rawValue
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((origin) => origin.replace(/\/+$/, ""));
+}
+
+function isAllowedOrigin(origin) {
+  const normalizedOrigin = origin.replace(/\/+$/, "");
+  if (normalizedOrigin === "http://localhost:3000" || normalizedOrigin === "http://localhost:5174") {
+    return true;
+  }
+
+  if (allowedOrigins.includes(normalizedOrigin)) {
+    return true;
+  }
+
+  try {
+    const host = new URL(normalizedOrigin).hostname;
+    return host.endsWith(".github.io");
+  } catch {
+    return false;
   }
 }
