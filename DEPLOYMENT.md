@@ -1,140 +1,52 @@
-# GUIA RÁPIDO: Configurar para Deployment
+# GUIA RÁPIDO: Deploy gratuito com Render + Supabase (Postgres)
 
-## Antes de tudo
+Este projeto agora usa Postgres no backend. O caminho recomendado para custo zero é:
 
-Este projeto usa **SQLite**.
+- Frontend no GitHub Pages
+- Backend no Render
+- Banco Postgres no Supabase
 
-- Em hospedagem gratuita, o backend geralmente roda com disco temporário.
-- Isso serve para **teste e demonstração**.
-- Para uso real com dados persistentes, prefira **VPS** ou migre o banco para **Postgres**.
+## 1. Criar banco no Supabase
 
-## 1. Deploy do Backend
+1. Acesse https://supabase.com e crie uma conta.
+2. Clique em "New project".
+3. Após criar, abra "Settings" > "Database".
+4. Copie a string de conexão Postgres (URI).
+5. Garanta que a URL termine com `?sslmode=require`.
 
-### Opção recomendada para teste: Render
+Formato esperado:
 
-Importante: se você usar SQLite na Render sem disco persistente, contas, posts e respostas podem sumir após restart, novo deploy ou manutenção da plataforma.
-
-### Step 1: Criar conta e conectar repositório
-- Vá em https://render.com
-- Clique em "New +" > "Web Service"
-- Conecte seu GitHub
-- Selecione seu repositório
-
-### Step 1.5: Criar um Persistent Disk
-- No serviço da Render, abra "Disks"
-- Crie um disco persistente
-- Monte em um caminho como `/var/data`
-- Esse passo é o que faz o SQLite sobreviver a reinícios
-
-### Step 2: Configurar variáveis de ambiente
-No painel da Render, vá em "Environment":
+```text
+postgresql://USUARIO:SENHA@HOST:5432/postgres?sslmode=require
 ```
-ADMIN_PASSWORD=sua-senha-forte-aqui
-SESSION_SECRET=um-segredo-aleatorio-muito-grande
+
+## 2. Configurar backend no Render
+
+1. Acesse https://render.com.
+2. Abra seu Web Service.
+3. Em "Environment", configure:
+
+```env
+DATABASE_URL=postgresql://USUARIO:SENHA@HOST:5432/postgres?sslmode=require
+SESSION_SECRET=um-segredo-grande-e-aleatorio
 ALLOWED_ORIGIN=https://justbegabs.github.io
+NODE_ENV=production
 PORT=5174
-DATA_DIR=/var/data
 ```
 
-### Step 3: Deploy automático
-- A Render faz deploy automaticamente quando você faz push
-- Copie a URL do seu backend, por exemplo: `https://letheris.onrender.com`
+4. Salve e execute "Deploy latest commit".
 
-### Limitações da opção gratuita
-- O serviço pode entrar em sleep quando ficar parado
-- Sem Persistent Disk, o SQLite não guarda dados permanentemente
+## 3. Deploy do frontend (GitHub Pages)
 
-### Opção recomendada para uso real: VPS
+1. No GitHub, vá em "Settings" > "Pages".
+2. Em "Source", selecione "Deploy from a branch".
+3. Use a branch `main`.
 
-Se você quer que o app continue funcionando com banco local sem surpresa:
+## 4. Verificação rápida
 
-```bash
-git clone https://github.com/seu-usuario/seu-repo.git
-cd seu-repo
-npm install
-npm start
-```
+1. Abra o frontend publicado.
+2. Teste login/admin.
+3. Crie uma conta pública e publique um post.
+4. Reinicie o serviço no Render e confirme que os dados continuam lá.
 
-Você pode rodar isso em um VPS da DigitalOcean, Lightsail, Oracle Cloud ou similar.
-
-### Opção alternativa: Railway
-
-- O Railway funciona bem
-- Mas hoje costuma exigir plano pago/créditos
-- Se o seu objetivo é custo zero, não é a melhor opção inicial
-
----
-
-## 2. Configurar o Frontend (app.js)
-
-Edite `app.js` na linha 2:
-
-### ANTES:
-```javascript
-const API_BASE_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5174'
-   : 'https://letheris.onrender.com';
-```
-
-### DEPOIS:
-```javascript
-const API_BASE_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5174'
-   : 'https://letheris.onrender.com';
-```
-
-Salve o arquivo e faça commit:
-```bash
-git add app.js
-git commit -m "feat: configurar URL do backend para production"
-git push origin main
-```
-
----
-
-## 3. Deploy do Frontend (GitHub Pages)
-
-### Automático (já está configurado):
-- Vá em Settings > Pages
-- Source: "Deploy from a branch"
-- Branch: "main"
-- Clique em "Save"
-
-GitHub Pages vai fazer deploy automaticamente quando você fizer push!
-
-**Seu site estará em:**
-```
-https://seu-usuario.github.io/seu-repo-name
-```
-
----
-
-## 4. Testar tudo
-
-1. **Abra seu frontend:**
-   ```
-   https://seu-usuario.github.io/seu-repo-name
-   ```
-
-2. **Tente fazer login:**
-   - Use a senha que configurou em `ADMIN_PASSWORD` no backend
-   - Clique em "Entrar"
-   - Deve funcionar agora! ✅
-
-3. **Se receber erro:**
-   - Abra DevTools (F12 > Console)
-   - Procure por erros de CORS
-   - Verifique se `ALLOWED_ORIGIN` está correto no host do backend
-   - Redeploy o backend
-
----
-
-## 5. Estrutura Final
-
-```
-Frontend:  https://seu-usuario.github.io/seu-repo-name
-Backend:   https://letheris.onrender.com
-Banco:     SQLite (bom para demo; para produção prefira VPS ou Postgres)
-```
-
-✨ Tudo funcionando!
+Se os dados persistirem após reinício, o banco está correto.

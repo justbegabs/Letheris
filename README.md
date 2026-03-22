@@ -6,7 +6,7 @@ Rede social estilo Twitter para **operador único**: você cria perfis/personas 
 
 - Frontend: HTML/CSS/JS puro.
 - Backend: Node.js + Express.
-- Banco: SQLite (`node:sqlite`, nativo do Node).
+- Banco: PostgreSQL (`pg`).
 - Sessão: `express-session` (cookie HTTP-only).
 
 ## Recursos
@@ -22,7 +22,7 @@ Rede social estilo Twitter para **operador único**: você cria perfis/personas 
 - Responder como qualquer perfil.
 - Excluir posts e respostas.
 - Filtrar timeline por perfil.
-- Persistência real em banco local (`data/letheris.db`).
+- Persistência real em banco Postgres externo.
 
 ## Configuração Rápida
 
@@ -43,11 +43,11 @@ Rede social estilo Twitter para **operador único**: você cria perfis/personas 
 
 	> ✅ Automaticamente cria `.env` baseado em `.env.example`
 
-3. (Opcional) Edite `.env` com suas credenciais seguras:
+3. (Obrigatório) Edite `.env` com suas credenciais:
 
 	```bash
 	# Abra o arquivo .env e altere:
-	ADMIN_PASSWORD=sua-senha-super-forte
+	DATABASE_URL=postgresql://USUARIO:SENHA@HOST:5432/postgres?sslmode=require
 	SESSION_SECRET=um-segredo-grande-e-aleatorio
 	```
 
@@ -73,43 +73,27 @@ Rede social estilo Twitter para **operador único**: você cria perfis/personas 
 
 ### Deploy (para compartilhar com outras pessoas)
 
-O **frontend (HTML/CSS/JS)** e **backend (Node.js)** precisam ser hospedados **em lugares diferentes**:
-
-**Importante:** este projeto usa **SQLite**. Em hospedagem gratuita, o disco costuma ser temporário. Isso significa que o app pode funcionar, mas o banco pode ser perdido após restart, deploy ou tempo de inatividade.
+O frontend e backend podem ser hospedados em serviços diferentes. O caminho recomendado é GitHub Pages + Render + Supabase.
 
 #### Step 1: Deploy do Backend
 
-Escolha uma das opções abaixo:
-
-**Opção A: Render** (bom para teste/demo)
+**Opção recomendada: Render + Supabase (grátis)**
 ```bash
 # 1. Crie conta em https://render.com
 # 2. Conecte seu repositório GitHub
-# 3. Crie um Persistent Disk e monte, por exemplo, em /var/data
-# 4. Configure variáveis de ambiente:
-ADMIN_PASSWORD=sua-senha-forte
+# 3. Configure variáveis de ambiente:
+DATABASE_URL=postgresql://USUARIO:SENHA@HOST:5432/postgres?sslmode=require
 SESSION_SECRET=seu-segredo-grande
 ALLOWED_ORIGIN=https://seu-dominio.github.io
+NODE_ENV=production
 PORT=5174
-DATA_DIR=/var/data
 # 5. Deploy automático quando fizer push!
 ```
 
-Limitação: no plano gratuito, o backend pode hibernar. Se você não configurar Persistent Disk, o SQLite pode perder contas, posts e respostas após restart ou novo deploy.
-
-**Opção B: VPS próprio** (melhor para uso real)
-- DigitalOcean, Hostinger VPS, Oracle Cloud, AWS Lightsail ou similar
-- Clone o repositório
-- Rode `npm install && npm start`
-- Mantém melhor controle sobre SQLite e arquivos locais
-
-**Opção C: Railway**
-- Funciona bem, mas normalmente exige plano pago/créditos
-- Vale se você quiser deploy simples sem administrar servidor
-
-**Opção D: Migrar banco para Postgres e manter backend grátis**
-- Se quiser hospedagem gratuita com mais confiabilidade, o ideal é trocar SQLite por Postgres
-- Aí você pode usar Render, Koyeb, Fly.io ou outro host sem depender de disco local
+No Supabase:
+- Crie projeto em https://supabase.com
+- Abra Settings > Database
+- Copie a connection string Postgres
 
 #### Step 2: Deploy do Frontend
 
@@ -151,7 +135,7 @@ Limitação: no plano gratuito, o backend pode hibernar. Se você não configura
 
 - **Setup automático**: Ao rodar `npm install`, o arquivo `.env` é criado automaticamente a partir de `.env.example`.
 - **Credenciais personalizadas?** Edite `.env` após a instalação com suas senhas fortes.
-- **Primeira execução**: A senha em `.env` é usada **apenas** para criar o banco de dados na primeira vez. Depois disso, pode ser alterada no próprio app (seção "Configurações").
+- **Primeira execução**: sem `DATABASE_URL` o backend não inicia.
 - **"Erro na requisição" ao fazer login?**
   - Certifique-se de que o servidor está rodando: `npm start`
   - Abra `http://localhost:5174` direto (não através do GitHub Pages)
@@ -160,9 +144,9 @@ Limitação: no plano gratuito, o backend pode hibernar. Se você não configura
   - Edite `app.js` e configure `API_BASE_URL` (linha 2) com sua URL de backend
   - Adicione essa URL em `.env`: `ALLOWED_ORIGIN=https://seu-frontend.github.io`
   - Redeploy o backend
-- **Vai usar hospedagem grátis?** Para demonstração funciona. Para uso real com SQLite, prefira VPS ou migre o banco para Postgres.
+- **Vai usar hospedagem grátis?** Use Render + Supabase para persistência real de dados.
 - **Esqueceu a senha?** Em qualquer máquina, use: `npm run reset-password` (solicita a nova senha no terminal).
-- **Resetar tudo**: Pare o servidor e delete a pasta `data/` inteira. Na próxima execução, o banco será recriado com as credenciais do `.env`.
-- **Banco de dados**: Criado automaticamente em `data/letheris.db` (não está no Git).
+- **Resetar tudo**: crie um novo banco/projeto no Supabase ou remova dados pelas tabelas no painel SQL.
+- **Banco de dados**: tabelas são criadas automaticamente pelo backend na inicialização.
 - **Aviso**: Não use Live Preview do VS Code na porta 3000. Sempre acesse via `http://localhost:5174` direto.
 - **Modo de desenvolvimento**: Use `npm run dev` para ver logs em tempo real e auto-reload.
