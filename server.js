@@ -13,10 +13,16 @@ const adminPasswordSeed = "admin123";
 const sessionSecret = normalizeEnvValue(process.env.SESSION_SECRET) || "solo-social-dev-secret";
 const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGIN || process.env.ALLOWED_ORIGINS);
 const isProduction = process.env.NODE_ENV === "production";
+const databaseUrl = normalizeEnvValue(process.env.DATABASE_URL);
+
+if (!databaseUrl) {
+  console.error("DATABASE_URL não configurada. Defina essa variável no ambiente de deploy.");
+  process.exit(1);
+}
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+  connectionString: databaseUrl,
+  ssl: { rejectUnauthorized: false }
 });
 
 (async () => {
