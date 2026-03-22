@@ -13,9 +13,15 @@ const adminPasswordSeed = "letherisadmin";
 const sessionSecret = normalizeEnvValue(process.env.SESSION_SECRET) || "solo-social-dev-secret";
 const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGIN || process.env.ALLOWED_ORIGINS);
 const isProduction = process.env.NODE_ENV === "production";
+const configuredDbPath = normalizeEnvValue(process.env.SQLITE_PATH);
+const configuredDataDir = normalizeEnvValue(process.env.DATA_DIR);
 
-const dataDir = path.join(__dirname, "data");
-const dbPath = path.join(dataDir, "letheris.db");
+const dataDir = configuredDbPath
+  ? path.dirname(configuredDbPath)
+  : configuredDataDir
+    ? path.resolve(configuredDataDir)
+    : path.join(__dirname, "data");
+const dbPath = configuredDbPath || path.join(dataDir, "letheris.db");
 ensureDataDir(dataDir);
 const db = new DatabaseSync(dbPath);
 

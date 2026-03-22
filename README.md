@@ -85,15 +85,17 @@ Escolha uma das opções abaixo:
 ```bash
 # 1. Crie conta em https://render.com
 # 2. Conecte seu repositório GitHub
-# 3. Configure variáveis de ambiente:
+# 3. Crie um Persistent Disk e monte, por exemplo, em /var/data
+# 4. Configure variáveis de ambiente:
 ADMIN_PASSWORD=sua-senha-forte
 SESSION_SECRET=seu-segredo-grande
 ALLOWED_ORIGIN=https://seu-dominio.github.io
 PORT=5174
-# 4. Deploy automático quando fizer push!
+DATA_DIR=/var/data
+# 5. Deploy automático quando fizer push!
 ```
 
-Limitação: no plano gratuito, o backend pode hibernar e o armazenamento local do SQLite não é adequado para dados importantes.
+Limitação: no plano gratuito, o backend pode hibernar. Se você não configurar Persistent Disk, o SQLite pode perder contas, posts e respostas após restart ou novo deploy.
 
 **Opção B: VPS próprio** (melhor para uso real)
 - DigitalOcean, Hostinger VPS, Oracle Cloud, AWS Lightsail ou similar

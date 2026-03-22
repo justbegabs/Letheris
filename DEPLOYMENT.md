@@ -12,11 +12,19 @@ Este projeto usa **SQLite**.
 
 ### Opção recomendada para teste: Render
 
+Importante: se você usar SQLite na Render sem disco persistente, contas, posts e respostas podem sumir após restart, novo deploy ou manutenção da plataforma.
+
 ### Step 1: Criar conta e conectar repositório
 - Vá em https://render.com
 - Clique em "New +" > "Web Service"
 - Conecte seu GitHub
 - Selecione seu repositório
+
+### Step 1.5: Criar um Persistent Disk
+- No serviço da Render, abra "Disks"
+- Crie um disco persistente
+- Monte em um caminho como `/var/data`
+- Esse passo é o que faz o SQLite sobreviver a reinícios
 
 ### Step 2: Configurar variáveis de ambiente
 No painel da Render, vá em "Environment":
@@ -25,6 +33,7 @@ ADMIN_PASSWORD=sua-senha-forte-aqui
 SESSION_SECRET=um-segredo-aleatorio-muito-grande
 ALLOWED_ORIGIN=https://justbegabs.github.io
 PORT=5174
+DATA_DIR=/var/data
 ```
 
 ### Step 3: Deploy automático
@@ -33,7 +42,7 @@ PORT=5174
 
 ### Limitações da opção gratuita
 - O serviço pode entrar em sleep quando ficar parado
-- O SQLite pode não ser confiável para guardar dados permanentemente
+- Sem Persistent Disk, o SQLite não guarda dados permanentemente
 
 ### Opção recomendada para uso real: VPS
 
