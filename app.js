@@ -36,12 +36,15 @@ const userActionsWrap = document.getElementById("user-actions-wrap");
 const userRegisterForm = document.getElementById("user-register-form");
 const userNameInput = document.getElementById("user-name");
 const userHandleInput = document.getElementById("user-handle");
+const userProfileImageInput = document.getElementById("user-profile-image");
 const userRegisterMessage = document.getElementById("user-register-message");
+const userAccountAvatar = document.getElementById("user-account-avatar");
 const userAccountName = document.getElementById("user-account-name");
 const userAccountHandle = document.getElementById("user-account-handle");
 const userLogoutButton = document.getElementById("user-logout");
 const userPostForm = document.getElementById("user-post-form");
 const userPostContent = document.getElementById("user-post-content");
+const userPostImageInput = document.getElementById("user-post-image");
 const userPostCounter = document.getElementById("user-post-counter");
 const userPostMessage = document.getElementById("user-post-message");
 const userFeed = document.getElementById("user-feed");
@@ -55,12 +58,14 @@ const profileForm = document.getElementById("profile-form");
 const profileNameInput = document.getElementById("profile-name");
 const profileHandleInput = document.getElementById("profile-handle");
 const profileBioInput = document.getElementById("profile-bio");
+const profileImageInput = document.getElementById("profile-image");
 const profilesList = document.getElementById("profiles-list");
 const clearFilterButton = document.getElementById("clear-filter");
 
 const postForm = document.getElementById("post-form");
 const postProfileSelect = document.getElementById("post-profile");
 const postContentInput = document.getElementById("post-content");
+const postImageInput = document.getElementById("post-image");
 const postCounter = document.getElementById("post-counter");
 const feed = document.getElementById("feed");
 const timelineLabel = document.getElementById("timeline-label");
@@ -262,9 +267,16 @@ async function onProfileSubmit(event) {
   const name = profileNameInput.value.trim();
   const handle = profileHandleInput.value.trim();
   const bio = profileBioInput.value.trim();
+  const imageFile = profileImageInput.files[0] || null;
   if (!name || !handle) return;
 
-  const payload = { name, handle, bio };
+  const payload = new FormData();
+  payload.append("name", name);
+  payload.append("handle", handle);
+  payload.append("bio", bio);
+  if (imageFile) {
+    payload.append("profileImage", imageFile);
+  }
   let result;
 
   if (editProfileId) {
@@ -300,11 +312,19 @@ async function onPostSubmit(event) {
 
   const profileId = postProfileSelect.value;
   const content = postContentInput.value.trim();
-  if (!profileId || !content) return;
+  const imageFile = postImageInput.files[0] || null;
+  if (!profileId || (!content && !imageFile)) return;
+
+  const payload = new FormData();
+  payload.append("profileId", profileId);
+  payload.append("content", content);
+  if (imageFile) {
+    payload.append("image", imageFile);
+  }
 
   const result = await apiRequest("/api/posts", {
     method: "POST",
-    body: { profileId, content }
+    body: payload
   }, false);
 
   if (!result || result.error) {
@@ -313,6 +333,7 @@ async function onPostSubmit(event) {
   }
 
   postContentInput.value = "";
+  postImageInput.value = "";
   postCounter.textContent = "0/280";
   await loadPosts();
   renderFeed();
@@ -340,6 +361,8 @@ function renderProfiles() {
     const node = profileTemplate.content.cloneNode(true);
     const article = node.querySelector(".profile-item");
 
+    const avatar = article.querySelector(".profile-avatar");
+    setImageSource(avatar, profile.profile_image_url);
     article.querySelector(".name").textContent = profile.name;
     article.querySelector(".handle").textContent = `@${profile.handle}`;
     article.querySelector(".bio").textContent = profile.bio || "Sem bio";
@@ -439,6 +462,11 @@ function renderFeed() {
     const node = postTemplate.content.cloneNode(true);
     const article = node.querySelector(".post-item");
 
+    const avatar = article.querySelector(".post-avatar");
+    const postImage = article.querySelector(".post-image");
+    setImageSource(avatar, post.author.profileImageUrl);
+    setImageSource(postImage, post.imageUrl);
+
     article.querySelector(".author").textContent = post.author.name;
     article.querySelector(".handle").textContent = `@${post.author.handle}`;
     article.querySelector(".time").textContent = formatDate(post.createdAt);
@@ -463,6 +491,7 @@ function renderFeed() {
     const replyForm = node.querySelector("form[data-role='reply-form']");
     const replySelect = node.querySelector("select[data-role='reply-profile']");
     const replyContent = node.querySelector("textarea[data-role='reply-content']");
+    const replyImage = node.querySelector("input[data-role='reply-image']");
     const replyCounter = node.querySelector("small[data-role='reply-counter']");
 
     state.profiles.forEach((profile) => {
@@ -482,11 +511,19 @@ function renderFeed() {
       event.preventDefault();
       const content = replyContent.value.trim();
       const profileId = replySelect.value;
-      if (!content || !profileId) return;
+      const imageFile = replyImage.files[0] || null;
+      if ((!content && !imageFile) || !profileId) return;
+
+      const payload = new FormData();
+      payload.append("content", content);
+      payload.append("profileId", profileId);
+      if (imageFile) {
+        payload.append("image", imageFile);
+      }
 
       const result = await apiRequest(`/api/posts/${post.id}/replies`, {
         method: "POST",
-        body: { profileId, content }
+        body: payload
       }, false);
 
       if (!result || result.error) {
@@ -502,15 +539,25 @@ function renderFeed() {
     post.replies.forEach((reply) => {
       const replyNode = document.createElement("article");
       replyNode.className = "reply-item";
+      const authorAvatarHtml = reply.author.profileImageUrl
+        ? `<img class="avatar" src="${escapeHtml(resolveMediaUrl(reply.author.profileImageUrl))}" alt="Foto de perfil" />`
+        : "";
+      const imageHtml = reply.imageUrl
+        ? `<img class="post-image" src="${escapeHtml(resolveMediaUrl(reply.imageUrl))}" alt="Imagem da resposta" />`
+        : "";
       replyNode.innerHTML = `
         <div class="row between align-start">
-          <div>
-            <strong>${escapeHtml(reply.author.name)}</strong>
-            <span class="muted">@${escapeHtml(reply.author.handle)}</span>
+          <div class="row align-center">
+            ${authorAvatarHtml}
+            <div>
+              <strong>${escapeHtml(reply.author.name)}</strong>
+              <span class="muted">@${escapeHtml(reply.author.handle)}</span>
+            </div>
           </div>
           <small class="muted">${formatDate(reply.createdAt)}</small>
         </div>
         <p class="content">${escapeHtml(reply.content)}</p>
+        ${imageHtml}
       `;
 
       const footer = document.createElement("div");
@@ -582,7 +629,9 @@ async function apiRequest(url, options = {}, redirectOnUnauthorized = true) {
     ...(options.headers || {})
   };
 
-  if (options.body) {
+  const isFormData = options.body instanceof FormData;
+
+  if (options.body && !isFormData) {
     headers["Content-Type"] = "application/json";
   }
 
@@ -593,7 +642,7 @@ async function apiRequest(url, options = {}, redirectOnUnauthorized = true) {
   };
 
   if (options.body) {
-    fetchOptions.body = JSON.stringify(options.body);
+    fetchOptions.body = isFormData ? options.body : JSON.stringify(options.body);
   }
 
   try {
@@ -671,30 +720,45 @@ async function renderPublicFeed() {
     const postNode = document.createElement("article");
     postNode.className = "post-item";
 
+    const postAvatarHtml = post.author.profileImageUrl
+      ? `<img class="avatar" src="${escapeHtml(resolveMediaUrl(post.author.profileImageUrl))}" alt="Foto de perfil" />`
+      : "";
+    const postImageHtml = post.imageUrl
+      ? `<img class="post-image" src="${escapeHtml(resolveMediaUrl(post.imageUrl))}" alt="Imagem da postagem" />`
+      : "";
+
     const repliesHtml = post.replies
       .map((reply) => `
         <article class="reply-item">
           <div class="row between align-start">
-            <div>
-              <strong>${escapeHtml(reply.author.name)}</strong>
-              <span class="muted">@${escapeHtml(reply.author.handle)}</span>
+            <div class="row align-center">
+              ${reply.author.profileImageUrl ? `<img class="avatar" src="${escapeHtml(resolveMediaUrl(reply.author.profileImageUrl))}" alt="Foto de perfil" />` : ""}
+              <div>
+                <strong>${escapeHtml(reply.author.name)}</strong>
+                <span class="muted">@${escapeHtml(reply.author.handle)}</span>
+              </div>
             </div>
             <small class="muted">${formatDate(reply.createdAt)}</small>
           </div>
           <p class="content">${escapeHtml(reply.content)}</p>
+          ${reply.imageUrl ? `<img class="post-image" src="${escapeHtml(resolveMediaUrl(reply.imageUrl))}" alt="Imagem da resposta" />` : ""}
         </article>
       `)
       .join("");
 
     postNode.innerHTML = `
       <header class="row between align-start">
-        <div>
-          <strong>${escapeHtml(post.author.name)}</strong>
-          <span class="muted">@${escapeHtml(post.author.handle)}</span>
+        <div class="row align-center">
+          ${postAvatarHtml}
+          <div>
+            <strong>${escapeHtml(post.author.name)}</strong>
+            <span class="muted">@${escapeHtml(post.author.handle)}</span>
+          </div>
         </div>
         <small class="muted">${formatDate(post.createdAt)}</small>
       </header>
       <p class="content">${escapeHtml(post.content)}</p>
+      ${postImageHtml}
       <small class="muted">${post.replies.length} resposta(s)</small>
       <div class="stack">${repliesHtml}</div>
     `;
@@ -709,14 +773,22 @@ async function onUserRegisterSubmit(event) {
 
   const name = userNameInput.value.trim();
   const handle = userHandleInput.value.trim();
+  const imageFile = userProfileImageInput.files[0] || null;
   if (!name || !handle) {
     setUserRegisterMessage("Nome e @usuario são obrigatórios.", true);
     return;
   }
 
+  const payload = new FormData();
+  payload.append("name", name);
+  payload.append("handle", handle);
+  if (imageFile) {
+    payload.append("profileImage", imageFile);
+  }
+
   const result = await apiRequest("/api/public/register", {
     method: "POST",
-    body: { name, handle }
+    body: payload
   }, false);
 
   if (!result || result.error) {
@@ -747,13 +819,20 @@ async function onUserPostSubmit(event) {
   setUserPostMessage("");
 
   const content = userPostContent.value.trim();
-  if (!content) {
+  const imageFile = userPostImageInput.files[0] || null;
+  if (!content && !imageFile) {
     return;
+  }
+
+  const payload = new FormData();
+  payload.append("content", content);
+  if (imageFile) {
+    payload.append("image", imageFile);
   }
 
   const result = await apiRequest("/api/public/posts", {
     method: "POST",
-    body: { content }
+    body: payload
   }, false);
 
   if (!result || result.error) {
@@ -784,11 +863,14 @@ function renderUserAccountArea() {
   userActionsWrap.classList.toggle("hidden", !hasAccount);
 
   if (!hasAccount) {
+    userAccountAvatar.classList.add("hidden");
+    userAccountAvatar.removeAttribute("src");
     userAccountName.textContent = "";
     userAccountHandle.textContent = "";
     return;
   }
 
+  setImageSource(userAccountAvatar, state.userAccount.profile.profileImageUrl);
   userAccountName.textContent = state.userAccount.profile.name;
   userAccountHandle.textContent = `@${state.userAccount.profile.handle}`;
 }
@@ -808,30 +890,45 @@ function renderUserFeed() {
     const postNode = document.createElement("article");
     postNode.className = "post-item";
 
+    const postAvatarHtml = post.author.profileImageUrl
+      ? `<img class="avatar" src="${escapeHtml(resolveMediaUrl(post.author.profileImageUrl))}" alt="Foto de perfil" />`
+      : "";
+    const postImageHtml = post.imageUrl
+      ? `<img class="post-image" src="${escapeHtml(resolveMediaUrl(post.imageUrl))}" alt="Imagem da postagem" />`
+      : "";
+
     const repliesHtml = post.replies
       .map((reply) => `
         <article class="reply-item">
           <div class="row between align-start">
-            <div>
-              <strong>${escapeHtml(reply.author.name)}</strong>
-              <span class="muted">@${escapeHtml(reply.author.handle)}</span>
+            <div class="row align-center">
+              ${reply.author.profileImageUrl ? `<img class="avatar" src="${escapeHtml(resolveMediaUrl(reply.author.profileImageUrl))}" alt="Foto de perfil" />` : ""}
+              <div>
+                <strong>${escapeHtml(reply.author.name)}</strong>
+                <span class="muted">@${escapeHtml(reply.author.handle)}</span>
+              </div>
             </div>
             <small class="muted">${formatDate(reply.createdAt)}</small>
           </div>
           <p class="content">${escapeHtml(reply.content)}</p>
+          ${reply.imageUrl ? `<img class="post-image" src="${escapeHtml(resolveMediaUrl(reply.imageUrl))}" alt="Imagem da resposta" />` : ""}
         </article>
       `)
       .join("");
 
     postNode.innerHTML = `
       <header class="row between align-start">
-        <div>
-          <strong>${escapeHtml(post.author.name)}</strong>
-          <span class="muted">@${escapeHtml(post.author.handle)}</span>
+        <div class="row align-center">
+          ${postAvatarHtml}
+          <div>
+            <strong>${escapeHtml(post.author.name)}</strong>
+            <span class="muted">@${escapeHtml(post.author.handle)}</span>
+          </div>
         </div>
         <small class="muted">${formatDate(post.createdAt)}</small>
       </header>
       <p class="content">${escapeHtml(post.content)}</p>
+      ${postImageHtml}
       <small class="muted">${post.replies.length} resposta(s)</small>
       <div class="stack">${repliesHtml}</div>
     `;
@@ -840,23 +937,32 @@ function renderUserFeed() {
       const form = document.createElement("form");
       form.className = "stack";
       form.innerHTML = `
-        <textarea maxlength="280" placeholder="Responder este post..." required></textarea>
+        <textarea maxlength="280" placeholder="Responder este post..."></textarea>
+        <input type="file" accept="image/*" />
         <div class="row">
           <button type="submit">Responder</button>
         </div>
       `;
 
       const replyInput = form.querySelector("textarea");
+      const replyImageInput = form.querySelector("input[type='file']");
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const content = replyInput.value.trim();
-        if (!content) {
+        const imageFile = replyImageInput.files[0] || null;
+        if (!content && !imageFile) {
           return;
+        }
+
+        const payload = new FormData();
+        payload.append("content", content);
+        if (imageFile) {
+          payload.append("image", imageFile);
         }
 
         const result = await apiRequest(`/api/public/posts/${post.id}/replies`, {
           method: "POST",
-          body: { content }
+          body: payload
         }, false);
 
         if (!result || result.error) {
@@ -897,4 +1003,31 @@ function clearPasswordMessage() {
   passwordMessage.textContent = "";
   passwordMessage.classList.remove("danger-text");
   passwordMessage.classList.remove("success-text");
+}
+
+function setImageSource(imgElement, imageUrl) {
+  if (!imgElement) {
+    return;
+  }
+
+  if (!imageUrl) {
+    imgElement.classList.add("hidden");
+    imgElement.removeAttribute("src");
+    return;
+  }
+
+  imgElement.src = resolveMediaUrl(imageUrl);
+  imgElement.classList.remove("hidden");
+}
+
+function resolveMediaUrl(url) {
+  if (!url) {
+    return "";
+  }
+
+  if (/^https?:\/\//i.test(url)) {
+    return url;
+  }
+
+  return `${API_BASE_URL}${url}`;
 }

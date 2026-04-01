@@ -3,12 +3,14 @@ const path = require("path");
 const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
+const multer = require("multer");
 const { Pool } = require("pg");
 
 loadEnv();
 
 const app = express();
 const port = Number(process.env.PORT || 5174);
+const uploadsDir = path.join(__dirname, "uploads");
 const adminPasswordSeed = "admin123";
 const sessionSecret = normalizeEnvValue(process.env.SESSION_SECRET) || "solo-social-dev-secret";
 const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGIN || process.env.ALLOWED_ORIGINS);
@@ -20,9 +22,35 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 const pool = new Pool({
   connectionString: databaseUrl,
   ssl: { rejectUnauthorized: false }
+});
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      cb(null, uploadsDir);
+    },
+    filename: (_req, file, cb) => {
+      const extension = path.extname(file.originalname || "").toLowerCase();
+      cb(null, `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${extension}`);
+    }
+  }),
+  limits: {
+    fileSize: 5 * 1024 * 1024
+  },
+  fileFilter: (_req, file, cb) => {
+    const accepted = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    if (!accepted.includes(file.mimetype)) {
+      return cb(new Error("Formato inválido. Use JPG, PNG, WEBP ou GIF."));
+    }
+    cb(null, true);
+  }
 });
 
 (async () => {
@@ -37,6 +65,7 @@ const pool = new Pool({
 });
 
 app.use(express.json());
+app.use("/uploads", express.static(uploadsDir));
 
 if (isProduction) {
   app.set("trust proxy", 1);
@@ -95,13 +124,14 @@ app.get("/api/public/account", async (req, res) => {
       profile: {
         id: account.profile_id,
         name: account.name,
-        handle: account.handle
+        handle: account.handle,
+        profileImageUrl: account.profile_image_url || ""
       }
     }
   });
 });
 
-app.post("/api/public/register", async (req, res) => {
+app.post("/api/public/register", handleUpload("profileImage"), async (req, res) => {
   const existing = await getPublicAccountFromSession(req);
   if (existing) {
     return res.status(409).json({ error: "Esta sessão já possui uma conta criada." });
@@ -110,6 +140,7 @@ app.post("/api/public/register", async (req, res) => {
   const { name, handle } = req.body || {};
   const cleanName = (name || "").trim();
   const cleanHandle = (handle || "").trim().replace(/^@+/, "").toLowerCase();
+  const profileImageUrl = uploadedFileUrl(req.file);
 
   if (!cleanName || !cleanHandle) {
     return res.status(400).json({ error: "Nome e @usuario são obrigatórios." });
@@ -124,7 +155,10 @@ app.post("/api/public/register", async (req, res) => {
   const accountId = cryptoRandomId();
 
   await withTransaction(async (client) => {
-    await client.query("INSERT INTO profiles (id, name, handle, bio, is_public) VALUES ($1, $2, $3, '', 1)", [profileId, cleanName, cleanHandle]);
+    await client.query(
+      "INSERT INTO profiles (id, name, handle, bio, is_public, profile_image_url) VALUES ($1, $2, $3, '', 1, $4)",
+      [profileId, cleanName, cleanHandle, profileImageUrl]
+    );
     await client.query("INSERT INTO public_accounts (id, profile_id) VALUES ($1, $2)", [accountId, profileId]);
   });
 
@@ -137,7 +171,8 @@ app.post("/api/public/register", async (req, res) => {
       profile: {
         id: profileId,
         name: cleanName,
-        handle: cleanHandle
+        handle: cleanHandle,
+        profileImageUrl
       }
     }
   });
@@ -190,16 +225,17 @@ app.post("/api/logout", requireAuth, (req, res) => {
 
 app.get("/api/profiles", requireAuth, async (req, res) => {
   const profiles = (await pool.query(
-    "SELECT id, name, handle, bio, created_at FROM profiles WHERE is_public = 0 ORDER BY created_at DESC"
+    "SELECT id, name, handle, bio, profile_image_url, created_at FROM profiles WHERE is_public = 0 ORDER BY created_at DESC"
   )).rows;
   res.json(profiles);
 });
 
-app.post("/api/profiles", requireAuth, async (req, res) => {
+app.post("/api/profiles", requireAuth, handleUpload("profileImage"), async (req, res) => {
   const { name, handle, bio } = req.body || {};
   const cleanName = (name || "").trim();
   const cleanHandle = (handle || "").trim().replace(/^@+/, "").toLowerCase();
   const cleanBio = (bio || "").trim();
+  const profileImageUrl = uploadedFileUrl(req.file);
 
   if (!cleanName || !cleanHandle) {
     return res.status(400).json({ error: "Nome e usuário são obrigatórios." });
@@ -212,15 +248,15 @@ app.post("/api/profiles", requireAuth, async (req, res) => {
 
   const id = cryptoRandomId();
   await pool.query(
-    "INSERT INTO profiles (id, name, handle, bio, is_public) VALUES ($1, $2, $3, $4, 0)",
-    [id, cleanName, cleanHandle, cleanBio]
+    "INSERT INTO profiles (id, name, handle, bio, is_public, profile_image_url) VALUES ($1, $2, $3, $4, 0, $5)",
+    [id, cleanName, cleanHandle, cleanBio, profileImageUrl]
   );
 
-  const profile = (await pool.query("SELECT id, name, handle, bio, created_at FROM profiles WHERE id = $1", [id])).rows[0];
+  const profile = (await pool.query("SELECT id, name, handle, bio, profile_image_url, created_at FROM profiles WHERE id = $1", [id])).rows[0];
   res.status(201).json(profile);
 });
 
-app.put("/api/profiles/:id", requireAuth, async (req, res) => {
+app.put("/api/profiles/:id", requireAuth, handleUpload("profileImage"), async (req, res) => {
   const { id } = req.params;
   const { name, handle, bio } = req.body || {};
   const cleanName = (name || "").trim();
@@ -231,10 +267,12 @@ app.put("/api/profiles/:id", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Nome e usuário são obrigatórios." });
   }
 
-  const current = (await pool.query("SELECT id FROM profiles WHERE id = $1 AND is_public = 0", [id])).rows[0];
+  const current = (await pool.query("SELECT id, profile_image_url FROM profiles WHERE id = $1 AND is_public = 0", [id])).rows[0];
   if (!current) {
     return res.status(404).json({ error: "Perfil não encontrado." });
   }
+
+  const profileImageUrl = uploadedFileUrl(req.file) || current.profile_image_url || "";
 
   const conflict = (await pool.query("SELECT id FROM profiles WHERE handle = $1 AND id <> $2", [cleanHandle, id])).rows[0];
   if (conflict) {
@@ -242,11 +280,11 @@ app.put("/api/profiles/:id", requireAuth, async (req, res) => {
   }
 
   await pool.query(
-    "UPDATE profiles SET name = $1, handle = $2, bio = $3 WHERE id = $4",
-    [cleanName, cleanHandle, cleanBio, id]
+    "UPDATE profiles SET name = $1, handle = $2, bio = $3, profile_image_url = $4 WHERE id = $5",
+    [cleanName, cleanHandle, cleanBio, profileImageUrl, id]
   );
 
-  const profile = (await pool.query("SELECT id, name, handle, bio, created_at FROM profiles WHERE id = $1", [id])).rows[0];
+  const profile = (await pool.query("SELECT id, name, handle, bio, profile_image_url, created_at FROM profiles WHERE id = $1", [id])).rows[0];
   res.json(profile);
 });
 
@@ -277,11 +315,12 @@ app.get("/api/public/posts", async (req, res) => {
   res.json(await getPostsWithReplies());
 });
 
-app.post("/api/public/posts", requirePublicAccount, async (req, res) => {
+app.post("/api/public/posts", requirePublicAccount, handleUpload("image"), async (req, res) => {
   const { content } = req.body || {};
   const cleanContent = (content || "").trim();
-  if (!cleanContent) {
-    return res.status(400).json({ error: "Conteúdo é obrigatório." });
+  const imageUrl = uploadedFileUrl(req.file);
+  if (!cleanContent && !imageUrl) {
+    return res.status(400).json({ error: "Adicione texto ou imagem." });
   }
 
   const lastPost = (await pool.query(
@@ -299,20 +338,21 @@ app.post("/api/public/posts", requirePublicAccount, async (req, res) => {
   const postId = cryptoRandomId();
   const createdAt = getBrasiliaIsoTimestamp();
   await pool.query(
-    "INSERT INTO posts (id, profile_id, content, created_at) VALUES ($1, $2, $3, $4)",
-    [postId, req.publicAccount.profile_id, cleanContent, createdAt]
+    "INSERT INTO posts (id, profile_id, content, image_url, created_at) VALUES ($1, $2, $3, $4, $5)",
+    [postId, req.publicAccount.profile_id, cleanContent, imageUrl, createdAt]
   );
 
   res.status(201).json({ ok: true, id: postId });
 });
 
-app.post("/api/public/posts/:id/replies", requirePublicAccount, async (req, res) => {
+app.post("/api/public/posts/:id/replies", requirePublicAccount, handleUpload("image"), async (req, res) => {
   const { id } = req.params;
   const { content } = req.body || {};
   const cleanContent = (content || "").trim();
+  const imageUrl = uploadedFileUrl(req.file);
 
-  if (!cleanContent) {
-    return res.status(400).json({ error: "Conteúdo é obrigatório." });
+  if (!cleanContent && !imageUrl) {
+    return res.status(400).json({ error: "Adicione texto ou imagem." });
   }
 
   const post = (await pool.query("SELECT id FROM posts WHERE id = $1", [id])).rows[0];
@@ -335,18 +375,19 @@ app.post("/api/public/posts/:id/replies", requirePublicAccount, async (req, res)
   const replyId = cryptoRandomId();
   const createdAt = getBrasiliaIsoTimestamp();
   await pool.query(
-    "INSERT INTO replies (id, post_id, profile_id, content, created_at) VALUES ($1, $2, $3, $4, $5)",
-    [replyId, id, req.publicAccount.profile_id, cleanContent, createdAt]
+    "INSERT INTO replies (id, post_id, profile_id, content, image_url, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+    [replyId, id, req.publicAccount.profile_id, cleanContent, imageUrl, createdAt]
   );
 
   res.status(201).json({ ok: true, id: replyId });
 });
 
-app.post("/api/posts", requireAuth, async (req, res) => {
+app.post("/api/posts", requireAuth, handleUpload("image"), async (req, res) => {
   const { profileId, content } = req.body || {};
   const cleanContent = (content || "").trim();
-  if (!profileId || !cleanContent) {
-    return res.status(400).json({ error: "Perfil e conteúdo são obrigatórios." });
+  const imageUrl = uploadedFileUrl(req.file);
+  if (!profileId || (!cleanContent && !imageUrl)) {
+    return res.status(400).json({ error: "Perfil e conteúdo/imagem são obrigatórios." });
   }
 
   const profile = (await pool.query("SELECT id FROM profiles WHERE id = $1", [profileId])).rows[0];
@@ -357,8 +398,8 @@ app.post("/api/posts", requireAuth, async (req, res) => {
   const id = cryptoRandomId();
   const createdAt = getBrasiliaIsoTimestamp();
   await pool.query(
-    "INSERT INTO posts (id, profile_id, content, created_at) VALUES ($1, $2, $3, $4)",
-    [id, profileId, cleanContent, createdAt]
+    "INSERT INTO posts (id, profile_id, content, image_url, created_at) VALUES ($1, $2, $3, $4, $5)",
+    [id, profileId, cleanContent, imageUrl, createdAt]
   );
   res.status(201).json({ ok: true, id });
 });
@@ -379,13 +420,14 @@ app.delete("/api/posts/:id", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/posts/:id/replies", requireAuth, async (req, res) => {
+app.post("/api/posts/:id/replies", requireAuth, handleUpload("image"), async (req, res) => {
   const { id } = req.params;
   const { profileId, content } = req.body || {};
   const cleanContent = (content || "").trim();
+  const imageUrl = uploadedFileUrl(req.file);
 
-  if (!profileId || !cleanContent) {
-    return res.status(400).json({ error: "Perfil e conteúdo são obrigatórios." });
+  if (!profileId || (!cleanContent && !imageUrl)) {
+    return res.status(400).json({ error: "Perfil e conteúdo/imagem são obrigatórios." });
   }
 
   const post = (await pool.query("SELECT id FROM posts WHERE id = $1", [id])).rows[0];
@@ -401,8 +443,8 @@ app.post("/api/posts/:id/replies", requireAuth, async (req, res) => {
   const replyId = cryptoRandomId();
   const createdAt = getBrasiliaIsoTimestamp();
   await pool.query(
-    "INSERT INTO replies (id, post_id, profile_id, content, created_at) VALUES ($1, $2, $3, $4, $5)",
-    [replyId, id, profileId, cleanContent, createdAt]
+    "INSERT INTO replies (id, post_id, profile_id, content, image_url, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+    [replyId, id, profileId, cleanContent, imageUrl, createdAt]
   );
 
   res.status(201).json({ ok: true, id: replyId });
@@ -445,6 +487,7 @@ async function initializeSchema() {
       name TEXT NOT NULL,
       handle TEXT NOT NULL UNIQUE,
       bio TEXT DEFAULT '',
+      profile_image_url TEXT DEFAULT '',
       is_public INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -453,6 +496,7 @@ async function initializeSchema() {
       id TEXT PRIMARY KEY,
       profile_id TEXT NOT NULL,
       content TEXT NOT NULL,
+      image_url TEXT DEFAULT '',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -461,6 +505,7 @@ async function initializeSchema() {
       post_id TEXT NOT NULL,
       profile_id TEXT NOT NULL,
       content TEXT NOT NULL,
+      image_url TEXT DEFAULT '',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -478,6 +523,7 @@ async function initializeSchema() {
   `);
 
   await ensureProfilesMigration();
+  await ensureImageColumnsMigration();
 }
 
 async function ensureAdminCredentials() {
@@ -569,11 +615,13 @@ function mapRowToEntry(row) {
   return {
     id: row.id,
     content: row.content,
+    imageUrl: row.image_url || "",
     createdAt: row.created_at,
     author: {
       id: row.author_id,
       name: row.author_name,
-      handle: row.author_handle
+      handle: row.author_handle,
+      profileImageUrl: row.author_profile_image_url || ""
     }
   };
 }
@@ -584,7 +632,9 @@ async function getPostsWithReplies(profileId = "") {
   const postRows = cleanProfileId
     ? (await pool.query(
         `SELECT p.id, p.content, p.created_at,
-                pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle
+          p.image_url,
+          pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle,
+          pr.profile_image_url AS author_profile_image_url
          FROM posts p
          JOIN profiles pr ON pr.id = p.profile_id
          WHERE p.profile_id = $1
@@ -593,15 +643,19 @@ async function getPostsWithReplies(profileId = "") {
       )).rows
     : (await pool.query(
         `SELECT p.id, p.content, p.created_at,
-                pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle
+          p.image_url,
+          pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle,
+          pr.profile_image_url AS author_profile_image_url
          FROM posts p
          JOIN profiles pr ON pr.id = p.profile_id
          ORDER BY p.created_at DESC`
       )).rows;
 
   const replyRows = (await pool.query(
-    `SELECT r.id, r.post_id, r.content, r.created_at,
-            pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle
+        `SELECT r.id, r.post_id, r.content, r.created_at,
+          r.image_url,
+          pr.id AS author_id, pr.name AS author_name, pr.handle AS author_handle,
+          pr.profile_image_url AS author_profile_image_url
      FROM replies r
      JOIN profiles pr ON pr.id = r.profile_id
      ORDER BY r.created_at DESC`
@@ -627,7 +681,7 @@ async function getPublicAccountFromSession(req) {
   }
 
   const result = await pool.query(
-    `SELECT pa.id, pa.profile_id, p.name, p.handle
+    `SELECT pa.id, pa.profile_id, p.name, p.handle, p.profile_image_url
      FROM public_accounts pa
      JOIN profiles p ON p.id = pa.profile_id
      WHERE pa.id = $1 AND p.is_public = 1`,
@@ -678,6 +732,48 @@ async function ensureProfilesMigration() {
   if (result.rows.length === 0) {
     await pool.query("ALTER TABLE profiles ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0");
   }
+}
+
+async function ensureImageColumnsMigration() {
+  await ensureColumnExists("profiles", "profile_image_url", "TEXT DEFAULT ''");
+  await ensureColumnExists("posts", "image_url", "TEXT DEFAULT ''");
+  await ensureColumnExists("replies", "image_url", "TEXT DEFAULT ''");
+}
+
+async function ensureColumnExists(table, column, definition) {
+  const result = await pool.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2",
+    [table, column]
+  );
+
+  if (result.rows.length === 0) {
+    await pool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+function uploadedFileUrl(file) {
+  if (!file?.filename) {
+    return "";
+  }
+  return `/uploads/${file.filename}`;
+}
+
+function handleUpload(fieldName) {
+  const middleware = upload.single(fieldName);
+
+  return (req, res, next) => {
+    middleware(req, res, (error) => {
+      if (!error) {
+        return next();
+      }
+
+      if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ error: "Imagem muito grande. Limite de 5MB." });
+      }
+
+      return res.status(400).json({ error: error.message || "Falha ao enviar imagem." });
+    });
+  };
 }
 
 function cryptoRandomId() {

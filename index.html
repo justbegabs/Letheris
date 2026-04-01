@@ -39,6 +39,7 @@
           <form id="user-register-form" class="stack">
             <input id="user-name" type="text" maxlength="30" placeholder="Seu nome" required />
             <input id="user-handle" type="text" maxlength="20" placeholder="@seuusuario" required />
+            <input id="user-profile-image" type="file" accept="image/*" />
             <button type="submit">Criar minha conta</button>
             <small id="user-register-message" class="muted"></small>
           </form>
@@ -46,14 +47,18 @@
 
         <div id="user-actions-wrap" class="stack hidden">
           <div class="row between align-center">
-            <div>
+            <div class="row align-center">
+              <img id="user-account-avatar" class="avatar avatar-lg hidden" alt="Foto de perfil" />
+              <div>
               <strong id="user-account-name"></strong>
               <span id="user-account-handle" class="muted"></span>
+              </div>
             </div>
             <button id="user-logout" class="ghost" type="button">Sair da conta</button>
           </div>
           <form id="user-post-form" class="stack">
-            <textarea id="user-post-content" maxlength="280" placeholder="Escreva uma postagem..." required></textarea>
+            <textarea id="user-post-content" maxlength="280" placeholder="Escreva uma postagem..."></textarea>
+            <input id="user-post-image" type="file" accept="image/*" />
             <div class="row between">
               <small id="user-post-counter" class="muted">0/280</small>
               <button type="submit">Publicar</button>
@@ -97,6 +102,7 @@
           <input id="profile-name" type="text" maxlength="30" placeholder="Nome" required />
           <input id="profile-handle" type="text" maxlength="20" placeholder="@usuario" required />
           <textarea id="profile-bio" maxlength="140" placeholder="Bio (opcional)"></textarea>
+          <input id="profile-image" type="file" accept="image/*" />
           <button type="submit">Salvar perfil</button>
         </form>
       </section>
@@ -126,7 +132,8 @@
         <h2>Nova postagem</h2>
         <form id="post-form" class="stack">
           <select id="post-profile" required></select>
-          <textarea id="post-content" maxlength="280" placeholder="O que está acontecendo?" required></textarea>
+          <textarea id="post-content" maxlength="280" placeholder="O que está acontecendo?"></textarea>
+          <input id="post-image" type="file" accept="image/*" />
           <div class="row between">
             <small id="post-counter" class="muted">0/280</small>
             <button type="submit">Postar</button>
@@ -146,10 +153,13 @@
 
   <template id="profile-template">
     <article class="profile-item">
-      <div>
-        <p class="name"></p>
-        <p class="handle muted"></p>
-        <p class="bio muted"></p>
+      <div class="row align-center">
+        <img class="avatar profile-avatar hidden" alt="Foto do perfil" />
+        <div>
+          <p class="name"></p>
+          <p class="handle muted"></p>
+          <p class="bio muted"></p>
+        </div>
       </div>
       <div class="row wrap gap-sm">
         <button data-action="filter" class="ghost">Ver</button>
@@ -163,13 +173,17 @@
   <template id="post-template">
     <article class="post-item">
       <header class="row between align-start">
-        <div>
+        <div class="row align-center author-wrap">
+          <img class="avatar post-avatar hidden" alt="Foto do autor" />
+          <div>
           <strong class="author"></strong>
           <span class="handle muted"></span>
+          </div>
         </div>
         <small class="muted time"></small>
       </header>
       <p class="content"></p>
+      <img class="post-image hidden" alt="Imagem da postagem" />
       <div class="row between align-center">
         <small class="muted reply-count"></small>
         <button data-action="delete-post" class="danger ghost">Excluir post</button>
@@ -178,7 +192,8 @@
         <summary>Responder</summary>
         <form class="reply-form stack" data-role="reply-form">
           <select data-role="reply-profile" required></select>
-          <textarea data-role="reply-content" maxlength="280" placeholder="Escreva uma resposta..." required></textarea>
+          <textarea data-role="reply-content" maxlength="280" placeholder="Escreva uma resposta..."></textarea>
+          <input data-role="reply-image" type="file" accept="image/*" />
           <div class="row between">
             <small class="muted" data-role="reply-counter">0/280</small>
             <button type="submit">Responder</button>
